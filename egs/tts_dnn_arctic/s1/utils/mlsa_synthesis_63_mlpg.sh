@@ -163,7 +163,7 @@ elif [ "$synth" = "excitation" ]; then
     #    | excite -p $psize \
     python utils/excitation.py -G 0.8 -s $srate -f $fftlen -b $bndap_order $f0 $bap > $tmpdir/resid.float
     cat $tmpdir/resid.float | mlsadf -P 5 -m $order -a $alpha -p $psize $mcep.float | x2x -o +fs > $tmpdir/data.mcep.syn
-    sox --norm -t raw -c 1 -r $srate -s -b 16 $tmpdir/data.mcep.syn $out_wav
+    sox --norm -t raw -c 1 -r $srate -e signed-integer -b 16 $tmpdir/data.mcep.syn $out_wav
 else
     x2x +af $mcep > $mcep.float
     psize=`echo "$period * $srate / 1000" | bc`
@@ -171,7 +171,7 @@ else
     cat $f0 | awk -v srate=$srate '(NR > 2){if ($1 > 0) print srate / $1; else print 0.0}' | x2x +af \
         | excite -p $psize \
         | mlsadf -P 5 -m $order -a $alpha -p $psize $mcep.float | x2x -o +fs > $tmpdir/data.mcep.syn
-    sox --norm -t raw -c 1 -r $srate -s -b 16 $tmpdir/data.mcep.syn $out_wav
+    sox --norm -t raw -c 1 -r $srate -e signed-integer -b 16 $tmpdir/data.mcep.syn $out_wav
 fi
 
 #-sigp 1.2

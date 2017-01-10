@@ -41,20 +41,19 @@
 #endif
 
 #ifndef M_PI
-#  define M_PI 3.1415926535897932384626433832795
+#define M_PI 3.1415926535897932384626433832795
 #endif
 
 #ifndef M_SQRT2
-#  define M_SQRT2 1.4142135623730950488016887
+#define M_SQRT2 1.4142135623730950488016887
 #endif
 
-
 #ifndef M_2PI
-#  define M_2PI 6.283185307179586476925286766559005
+#define M_2PI 6.283185307179586476925286766559005
 #endif
 
 #ifndef M_SQRT1_2
-# define M_SQRT1_2 0.7071067811865475244008443621048490
+#define M_SQRT1_2 0.7071067811865475244008443621048490
 #endif
 
 #ifndef M_LOG_2PI
@@ -65,20 +64,65 @@
 #define M_LN2 0.693147180559945309417232121458
 #endif
 
-#ifdef _MSC_VER
-#  define KALDI_ISNAN _isnan
-#  define KALDI_ISINF(x) (!_isnan(x) && _isnan(x-x))
-#  define KALDI_ISFINITE _finite
-#else
-#  define KALDI_ISNAN std::isnan
-#  define KALDI_ISINF std::isinf
-#  define KALDI_ISFINITE(x) std::isfinite(x)
+#ifndef M_LN10
+#define M_LN10 2.302585092994045684017991454684
 #endif
+
+
+#define KALDI_ISNAN std::isnan
+#define KALDI_ISINF std::isinf
+#define KALDI_ISFINITE(x) std::isfinite(x)
+
 #if !defined(KALDI_SQR)
 # define KALDI_SQR(x) ((x) * (x))
 #endif
 
 namespace kaldi {
+
+#if !defined(_MSC_VER) || (_MSC_VER >= 1900)
+inline double Exp(double x) { return exp(x); }
+#ifndef KALDI_NO_EXPF
+inline float Exp(float x) { return expf(x); }
+#else
+inline float Exp(float x) { return exp(static_cast<double>(x)); }
+#endif  // KALDI_NO_EXPF
+#else
+inline double Exp(double x) { return exp(x); }
+#if !defined(__INTEL_COMPILER) && _MSC_VER == 1800 && defined(_M_X64)
+// Microsoft CL v18.0 buggy 64-bit implementation of
+// expf() incorrectly returns -inf for exp(-inf).
+inline float Exp(float x) { return exp(static_cast<double>(x)); }
+#else
+inline float Exp(float x) { return expf(x); }
+#endif  // !defined(__INTEL_COMPILER) && _MSC_VER == 1800 && defined(_M_X64)
+#endif  // !defined(_MSC_VER) || (_MSC_VER >= 1900)
+
+inline double Log(double x) { return log(x); }
+inline float Log(float x) { return logf(x); }
+
+#if !defined(_MSC_VER) || (_MSC_VER >= 1700)
+inline double Log1p(double x) {  return log1p(x); }
+inline float Log1p(float x) {  return log1pf(x); }
+#else
+inline double Log1p(double x) {
+  const double cutoff = 1.0e-08;
+  if (x < cutoff)
+    return x - 2 * x * x;
+  else
+    return Log(1.0 + x);
+}
+
+inline float Log1p(float x) {
+  const float cutoff = 1.0e-07;
+  if (x < cutoff)
+    return x - 2 * x * x;
+  else
+    return Log(1.0 + x);
+}
+#endif
+
+static const double kMinLogDiffDouble = Log(DBL_EPSILON);  // negative!
+static const float kMinLogDiffFloat = Log(FLT_EPSILON);  // negative!
 
 // -infinity
 const float kLogZeroFloat = -std::numeric_limits<float>::infinity();
@@ -86,7 +130,7 @@ const double kLogZeroDouble = -std::numeric_limits<double>::infinity();
 const BaseFloat kLogZeroBaseFloat = -std::numeric_limits<BaseFloat>::infinity();
 
 // Returns a random integer between 0 and RAND_MAX, inclusive
-int Rand(struct RandomState* state=NULL);
+int Rand(struct RandomState* state = NULL);
 
 // State for thread-safe random number generator
 struct RandomState {
@@ -95,9 +139,10 @@ struct RandomState {
 };
 
 // Returns a random integer between min and max inclusive.
-int32 RandInt(int32 min, int32 max, struct RandomState* state=NULL);
+int32 RandInt(int32 min, int32 max, struct RandomState* state = NULL);
 
-bool WithProb(BaseFloat prob, struct RandomState* state=NULL); // Returns true with probability "prob",
+// Returns true with probability "prob",
+bool WithProb(BaseFloat prob, struct RandomState* state = NULL);
 // with 0 <= prob <= 1 [we check this].
 // Internally calls Rand().  This function is carefully implemented so
 // that it should work even if prob is very small.
@@ -108,14 +153,14 @@ inline float RandUniform(struct RandomState* state = NULL) {
 }
 
 inline float RandGauss(struct RandomState* state = NULL) {
-  return static_cast<float>(sqrtf (-2 * logf(RandUniform(state)))
+  return static_cast<float>(sqrtf (-2 * Log(RandUniform(state)))
                             * cosf(2*M_PI*RandUniform(state)));
 }
 
 // Returns poisson-distributed random number.  Uses Knuth's algorithm.
 // Take care: this takes time proportinal
 // to lambda.  Faster algorithms exist but are more complex.
-int32 RandPoisson(float lambda, struct RandomState* state=NULL);
+int32 RandPoisson(float lambda, struct RandomState* state = NULL);
 
 // Returns a pair of gaussian random numbers. Uses Box-Muller transform
 void RandGauss2(float *a, float *b, RandomState *state = NULL);
@@ -126,7 +171,8 @@ void RandGauss2(double *a, double *b, RandomState *state = NULL);
 // This is a randomized pruning mechanism that preserves expectations,
 // that we typically use to prune posteriors.
 template<class Float>
-inline Float RandPrune(Float post, BaseFloat prune_thresh, struct RandomState* state=NULL) {
+inline Float RandPrune(Float post, BaseFloat prune_thresh,
+                       struct RandomState* state = NULL) {
   KALDI_ASSERT(prune_thresh >= 0.0);
   if (post == 0.0 || std::abs(post) >= prune_thresh)
     return post;
@@ -134,8 +180,6 @@ inline Float RandPrune(Float post, BaseFloat prune_thresh, struct RandomState* s
       (RandUniform(state) <= fabs(post)/prune_thresh ? prune_thresh : 0.0);
 }
 
-static const double kMinLogDiffDouble = std::log(DBL_EPSILON);  // negative!
-static const float kMinLogDiffFloat = std::log(FLT_EPSILON);  // negative!
 
 inline double LogAdd(double x, double y) {
   double diff;
@@ -149,11 +193,7 @@ inline double LogAdd(double x, double y) {
 
   if (diff >= kMinLogDiffDouble) {
     double res;
-#ifdef _MSC_VER
-    res = x + log(1.0 + exp(diff));
-#else
-    res = x + log1p(exp(diff));
-#endif
+    res = x + Log1p(Exp(diff));
     return res;
   } else {
     return x;  // return the larger one.
@@ -173,11 +213,7 @@ inline float LogAdd(float x, float y) {
 
   if (diff >= kMinLogDiffFloat) {
     float res;
-#ifdef _MSC_VER
-    res = x + logf(1.0 + expf(diff));
-#else
-    res = x + log1pf(expf(diff));
-#endif
+    res = x + Log1p(Exp(diff));
     return res;
   } else {
     return x;  // return the larger one.
@@ -195,7 +231,7 @@ inline double LogSub(double x, double y) {
   }
 
   double diff = y - x;  // Will be negative.
-  double res = x + log(1.0 - exp(diff));
+  double res = x + Log(1.0 - Exp(diff));
 
   // res might be NAN if diff ~0.0, and 1.0-exp(diff) == 0 to machine precision
   if (KALDI_ISNAN(res))
@@ -214,7 +250,7 @@ inline float LogSub(float x, float y) {
   }
 
   float diff = y - x;  // Will be negative.
-  float res = x + logf(1.0 - expf(diff));
+  float res = x + Log(1.0f - Exp(diff));
 
   // res might be NAN if diff ~0.0, and 1.0-exp(diff) == 0 to machine precision
   if (KALDI_ISNAN(res))
@@ -226,11 +262,11 @@ inline float LogSub(float x, float y) {
 static inline bool ApproxEqual(float a, float b,
                                float relative_tolerance = 0.001) {
   // a==b handles infinities.
-  if (a==b) return true;
+  if (a == b) return true;
   float diff = std::abs(a-b);
   if (diff == std::numeric_limits<float>::infinity()
-      || diff != diff) return false; // diff is +inf or nan.
-  return (diff <= relative_tolerance*(std::abs(a)+std::abs(b))); 
+      || diff != diff) return false;  // diff is +inf or nan.
+  return (diff <= relative_tolerance*(std::abs(a)+std::abs(b)));
 }
 
 /// assert abs(a - b) <= relative_tolerance * (abs(a)+abs(b))
@@ -302,42 +338,9 @@ template<class I> void Factorize(I m, std::vector<I> *factors) {
 }
 
 inline double Hypot(double x, double y) {  return hypot(x, y); }
-
 inline float Hypot(float x, float y) {  return hypotf(x, y); }
 
-#if !defined(_MSC_VER) || (_MSC_VER >= 1800)
-inline double Log1p(double x) {  return log1p(x); }
 
-inline float Log1p(float x) {  return log1pf(x); }
-#else
-inline double Log1p(double x) {
-    const double cutoff = 1.0e-08;
-    if (x < cutoff)
-        return x - 2 * x * x;
-    else 
-        return log(1.0 + x);
-}
-
-inline float Log1p(float x) {
-    const float cutoff = 1.0e-07;
-    if (x < cutoff)
-        return x - 2 * x * x;
-    else 
-        return log(1.0 + x);
-}
-#endif
-
-inline double Exp(double x) { return exp(x); }
-
-#ifndef KALDI_NO_EXPF
-inline float Exp(float x) { return expf(x); }
-#else
-inline float Exp(float x) { return exp(x); }
-#endif
-
-inline double Log(double x) { return log(x); }
-
-inline float Log(float x) { return logf(x); }
 
 
 }  // namespace kaldi

@@ -19,6 +19,6 @@ TESTOUTPUTS = composed.fst output.fst output1.fst output2.fst
 
 LIBNAME = kaldi-lm
 
-ADDLIBS = ../base/kaldi-base.a ../fstext/kaldi-fstext.a ../util/kaldi-util.a
+ADDLIBS = ../base/kaldi-base.a ../thread/kaldi-thread.a ../fstext/kaldi-fstext.a ../util/kaldi-util.a
 
 include ../makefiles/default_rules.mk

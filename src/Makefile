@@ -151,9 +151,9 @@ bin fstbin gmmbin fgmmbin sgmmbin sgmm2bin featbin nnetbin nnet2bin nnet3bin cha
 
 #2)The libraries have inter-dependencies
 base:
-matrix : base
-util: base matrix
-thread: util matrix base
+matrix: base
+thread: base 
+util: base matrix thread
 feat: base matrix util gmm transform tree thread
 tree: base util matrix
 optimization: base matrix
@@ -178,7 +178,8 @@ online2bin: base matrix util feat tree optimization gmm transform sgmm sgmm2 fst
 # python-kaldi-decoding: base matrix util feat tree optimization thread gmm transform sgmm sgmm2 fstext hmm decoder lat online
 online: decoder gmm transform feat matrix util base lat hmm thread tree
 online2: decoder gmm transform feat matrix util base lat hmm thread ivector cudamatrix nnet2
+kws: lat base util hmm tree matrix 
 kwsbin: fstext lat base util hmm tree matrix kws
 #4) Dependencies for IDLAK
-idlaktxp: base matrix util
-idlaktxpbin: idlaktxp base matrix util
+idlaktxp: base matrix hmm util
+idlaktxpbin: idlaktxp base hmm matrix util

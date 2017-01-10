@@ -260,7 +260,7 @@ void AperiodicEnergy::IdentifyNoiseRegions(
     std::vector<bool> *noise_indices) {
   KALDI_ASSERT(noise_indices != NULL);
   KALDI_ASSERT(power_spectrum.Dim() == padded_window_size_/2+1 && "Power "
-               "spectrum size expected to be half of padded window plus 1.")
+               "spectrum size expected to be half of padded window plus 1.");
   BaseFloat sampling_freq = opts_.frame_opts.samp_freq;
   int32 f0_index = static_cast<int32>(round(sampling_freq/f0)),
       max_f0_index = static_cast<int32>(round(sampling_freq/opts_.f0_max)),
@@ -509,17 +509,17 @@ void AperiodicEnergy::ObtainNoiseSpectrum(
     /*noise_spectrum->Range(0, padded_window_size_/4).SetZero();
       noise_spectrum->Range(3 * padded_window_size_/4, padded_window_size_/4).SetZero();*/
     //noise_spectrum->Range(padded_window_size_/2 + window_size / 2, padded_window_size_/2 - window_size / 2).SetZero();
-    if (iter > 0) {  // calculate the squared error (in time domain)
+    /*if (iter > 0) {  // calculate the squared error (in time domain)
       prev_estimate.AddVec(-1.0, *noise_spectrum);
       BaseFloat err = prev_estimate.SumPower(2.0) / ifft_scale / 32768.0;
       //KALDI_LOG << "Iteration " << iter
       //          << ": Aperiodic component squared error = " << err;
       if (err < opts_.min_sq_error) {  // converged
         // noise_spectrum is still in time domain; convert to frequency domain
-        srfft_->Compute(noise_spectrum->Data(), true /*do FFT*/);
+        srfft_->Compute(noise_spectrum->Data(), true //do FFT);
         break;
       }
-    }
+    }*/
     prev_estimate.CopyFromVec(*noise_spectrum);
 
     srfft_->Compute(noise_spectrum->Data(), true /*do FFT*/);

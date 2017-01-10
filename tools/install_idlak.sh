@@ -18,7 +18,7 @@ echo "****(1) Installing expat"
 
 (
   rm -f expat-2.1.0.tar.gz 2>/dev/null
-  wget -T 10 -t 3 https://downloads.sourceforge.net/project/expat/expat/2.1.0/expat-2.1.0.tar.gz
+  wget -T 10 -t 3 https://sourceforge.net/projects/expat/files/expat/2.1.0/expat-2.1.0.tar.gz
   if [ ! -e expat-2.1.0.tar.gz ]; then
     echo "****download of expat-2.1.0.tar.gz failed."
     exit 1
@@ -40,8 +40,9 @@ fi
 echo "****(2) Installing pugixml"
 
 (
-  rm -f pugixml-1.2.tar.gz 2>/dev/null
-  wget -T 10 -t 3 http://pugixml.googlecode.com/files/pugixml-1.2.tar.gz
+  rm -rf pugixml-1.2 pugixml-1.2.tar.gz 2>/dev/null
+  #wget -T 10 -t 3 http://pugixml.googlecode.com/files/pugixml-1.2.tar.gz
+  wget -T 10 -t 3 https://github.com/zeux/pugixml/releases/download/v1.2/pugixml-1.2.tar.gz
   if [ ! -e pugixml-1.2.tar.gz ]; then
     echo "****download of pugixml-1.2.tar.gz failed."
     exit 1
@@ -58,6 +59,8 @@ echo "****(2) Installing pugixml"
         cmake -DCMAKE_CXX_FLAGS=-stdlib=libstdc++
       elif [ "$osx_ver" == "10.10" ]; then
         cmake -DCMAKE_CXX_FLAGS=-stdlib=libstdc++
+      else
+        cmake .
       fi
     else
       cmake . || exit 1
@@ -119,30 +122,30 @@ if [ $ok_sptk -ne 0 ]; then
 fi
 
 echo "****(5) Installing phonetisaurus"
-(
-    rm -f Phonetisaurus
-    git clone https://github.com/AdolfVonKleist/Phonetisaurus.git
-    if [ ! -e Phonetisaurus ]; then
-        echo "****cloning of Phonetisaurus failed."
-	    exit 1
-    else
-        cd Phonetisaurus
-	    git checkout 09651ed5f6e9040d6dd30070601ecccfad254df4 . || exit 1
-        patch -p1 -N < ../extras/phonetisaurus.patch
-        cd src/.autoconf
-        autoconf -o ../configure || exit 1
-        cd ..
-        LDFLAGS="-Wl,-rpath=`pwd`/../../openfst/lib/" ./configure --with-openfst-libs=`pwd`/../../openfst/lib --with-openfst-includes=`pwd`/../../openfst/include  --with-install-bin=`pwd`/.. || exit 1
-	    make -j4 || exit 1
-	    make install || exit 1
-        cd ..
-    fi
-)
-ok_phonetisaurus=$?
-if [ $ok_phonetisaurus -ne 0 ]; then
-    echo "****phonetisaurus install failed."
-    exit 1
-fi
+#(
+#    rm -f Phonetisaurus
+#    git clone https://github.com/AdolfVonKleist/Phonetisaurus.git
+#    if [ ! -e Phonetisaurus ]; then
+#        echo "****cloning of Phonetisaurus failed."
+#	    exit 1
+#    else
+#        cd Phonetisaurus
+#	    git checkout 09651ed5f6e9040d6dd30070601ecccfad254df4 . || exit 1
+#        patch -p1 -N < ../extras/phonetisaurus.patch
+#        cd src/.autoconf
+#        autoconf -o ../configure || exit 1
+#        cd ..
+#        LDFLAGS="-Wl,-rpath=`pwd`/../../openfst/lib/" ./configure --with-openfst-libs=`pwd`/../../openfst/lib --with-openfst-includes=`pwd`/../../openfst/include  --with-install-bin=`pwd`/.. || exit 1
+#	    make -j4 || exit 1
+#	    make install || exit 1
+#        cd ..
+#    fi
+#)
+#ok_phonetisaurus=$?
+#if [ $ok_phonetisaurus -ne 0 ]; then
+#    echo "****phonetisaurus install failed."
+#    exit 1
+#fi
 
 # echo "****(1) Installing Apache Xerces C++ XML Parser"
 

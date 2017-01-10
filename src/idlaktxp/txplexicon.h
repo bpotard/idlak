@@ -36,7 +36,7 @@ struct TxpLexiconLkp;
 /// other entries.
 struct TxpLexCompare {
  public:
-  bool operator()(const std::string x, const std::string y) {
+   bool operator()(const std::string x, const std::string y) const {
     std::size_t p1, p2;
     p1 = x.find(":");
     p2 = y.find(":");

@@ -20,6 +20,7 @@
 // limitations under the License.
 
 #include <cstdio>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -105,7 +106,7 @@ void WaveData::WriteUint16(std::ostream &os, int16 i) {
 
 
 
-void WaveData::Read(std::istream &is) {
+void WaveData::Read(std::istream &is, ReadDataType read_data) {
   data_.Resize(0, 0);  // clear the data.
 
   char tmp[5];
@@ -117,15 +118,15 @@ void WaveData::Read(std::istream &is) {
   else if (strcmp(tmp, "RIFF"))
     KALDI_ERR << "WaveData: expected RIFF or RIFX, got " << tmp;
 
-#ifdef __BIG_ENDIAN__  
+#ifdef __BIG_ENDIAN__
   bool swap = !is_rifx;
 #else
   bool swap = is_rifx;
 #endif
-  
+
   uint32 riff_chunk_size = ReadUint32(is, swap);
   Expect4ByteTag(is, "WAVE");
-  
+
   uint32 riff_chunk_read = 0;
   riff_chunk_read += 4;  // WAVE included in riff_chunk_size.
 
@@ -157,10 +158,10 @@ void WaveData::Read(std::istream &is) {
     fmt_chunk_read = 40;
 
     // Support only KSDATAFORMAT_SUBTYPE_PCM for now. Interesting formats:
-    //("00000001-0000-0010-8000-00aa00389b71", KSDATAFORMAT_SUBTYPE_PCM)
-    //("00000003-0000-0010-8000-00aa00389b71", KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)
-    //("00000006-0000-0010-8000-00aa00389b71", KSDATAFORMAT_SUBTYPE_ALAW)
-    //("00000007-0000-0010-8000-00aa00389b71", KSDATAFORMAT_SUBTYPE_MULAW)
+    // ("00000001-0000-0010-8000-00aa00389b71", KSDATAFORMAT_SUBTYPE_PCM)
+    // ("00000003-0000-0010-8000-00aa00389b71", KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)
+    // ("00000006-0000-0010-8000-00aa00389b71", KSDATAFORMAT_SUBTYPE_ALAW)
+    // ("00000007-0000-0010-8000-00aa00389b71", KSDATAFORMAT_SUBTYPE_MULAW)
     if (guid1 != 0x00000001 || guid2 != 0x00100000 ||
         guid3 != 0xAA000080 || guid4 != 0x719B3800) {
       KALDI_ERR << "WaveData: unknown/unsupported WAVE_FORMAT_EXTENSIBLE format.";
@@ -200,14 +201,14 @@ void WaveData::Read(std::istream &is) {
   // be a single "fact" subchunk, but on Windows there can also be a
   // "list" subchunk.
   while (strncmp(next_chunk_name, "data", 4) != 0) {
-    // We will just ignore the data in these chunks.  
+    // We will just ignore the data in these chunks.
     uint32 chunk_sz = ReadUint32(is, swap);
     if (chunk_sz != 4 && strncmp(next_chunk_name, "fact", 4) == 0)
       KALDI_WARN << "Expected fact chunk to be 4 bytes long.";
     for (uint32 i = 0; i < chunk_sz; i++)
       is.get();
     riff_chunk_read += 4 + chunk_sz;  // for chunk_sz (4) + chunk contents (chunk-sz)
-    
+
     // Now read the next chunk name.
     Read4ByteTag(is, next_chunk_name);
     riff_chunk_read += 4;
@@ -220,11 +221,29 @@ void WaveData::Read(std::istream &is) {
   uint32 data_chunk_size = ReadUint32(is, swap);
   riff_chunk_read += 4;
 
-  if (riff_chunk_read + data_chunk_size != riff_chunk_size) {
-    KALDI_ERR << "Expected " << riff_chunk_size << " bytes in RIFF chunk, but "
-              << "after first data block there will be " << riff_chunk_read
-              << " + " << data_chunk_size << " bytes "
-              << "(we do not support reading multiple data chunks).";
+  if (std::abs(static_cast<int64>(riff_chunk_read) +
+               static_cast<int64>(data_chunk_size) -
+               static_cast<int64>(riff_chunk_size)) > 1) {
+    // we allow the size to be off by one without warning, because there is a
+    // weirdness in the format of RIFF files that means that the input may
+    // sometimes be padded with 1 unused byte to make the total size even.
+    KALDI_WARN << "Expected " << riff_chunk_size << " bytes in RIFF chunk, but "
+               << "after first data block there will be " << riff_chunk_read
+               << " + " << data_chunk_size << " bytes "
+               << "(we do not support reading multiple data chunks).";
+  }
+
+  if (read_data == kLeaveDataUndefined) {
+    // we won't actually be reading the data- we'll just be faking that we read
+    // that data, so the caller can get the metadata.
+    // assume we'd read the same number of bytes that the data-chunk header
+    // says we'd read.
+    int32 num_bytes_read = data_chunk_size;
+    uint32 num_samp = num_bytes_read / block_align;
+    data_.Resize(num_channels, num_samp, kUndefined);
+    return;
+  } else {
+    KALDI_ASSERT(read_data == kReadData);
   }
 
   std::vector<char*> data_pointer_vec;
@@ -259,12 +278,12 @@ void WaveData::Read(std::istream &is) {
   } else if (num_bytes_read != data_chunk_size) {
     KALDI_ASSERT(num_bytes_read < data_chunk_size);
     KALDI_WARN << "Read fewer bytes than specified in the header: "
-               << num_bytes_read << " < " << data_chunk_size;    
+               << num_bytes_read << " < " << data_chunk_size;
   }
-  
+
   if (data_chunk_size == 0)
     KALDI_ERR << "WaveData: empty file (no data)";
-  
+
   uint32 num_samp = num_bytes_read / block_align;
   data_.Resize(num_channels, num_samp);
   for (uint32 i = 0; i < num_samp; i++) {
@@ -335,12 +354,18 @@ void WaveData::Write(std::ostream &os) const {
   const BaseFloat *data_ptr = data_.Data();
   int32 stride = data_.Stride();
 
+  int num_clipped = 0;
   for (int32 i = 0; i < num_samp; i++) {
     for (int32 j = 0; j < num_chan; j++) {
-      int32 elem = static_cast<int32>(data_ptr[j*stride + i]);
-      int16 elem_16(elem);
-      if (static_cast<int32>(elem_16) != elem)
-        KALDI_ERR << "Wave file is out of range for 16-bit.";
+      int32 elem = static_cast<int32>(trunc(data_ptr[j * stride + i]));
+      int16 elem_16 = static_cast<int16>(elem);
+      if (elem < std::numeric_limits<int16>::min()) {
+        elem_16 = std::numeric_limits<int16>::min();
+        ++num_clipped;
+      } else if (elem > std::numeric_limits<int16>::max()) {
+        elem_16 = std::numeric_limits<int16>::max();
+        ++num_clipped;
+      }
 #ifdef __BIG_ENDIAN__
       KALDI_SWAP2(elem_16);
 #endif
@@ -349,6 +374,10 @@ void WaveData::Write(std::ostream &os) const {
   }
   if (os.fail())
     KALDI_ERR << "Error writing wave data to stream.";
+  if (num_clipped > 0)
+    KALDI_WARN << "WARNING: clipped " << num_clipped
+               << " samples out of total " << num_chan * num_samp
+               << ". Reduce volume?";
 }
 
 

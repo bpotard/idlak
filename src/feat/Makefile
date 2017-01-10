@@ -11,7 +11,7 @@ TESTFILES = feature-mfcc-test feature-plp-test feature-fbank-test \
 
 OBJFILES = feature-functions.o feature-mfcc.o feature-plp.o feature-fbank.o \
 	feature-spectrogram.o mel-computations.o wave-reader.o \
-	signal-process.o feature-lpc.o feature-aperiodic.o \
+	signal.o feature-aperiodic.o \
         pitch-functions.o feature-sdc-test.o resample.o online-feature.o \
         sinusoid-detection.o
 

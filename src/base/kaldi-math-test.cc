@@ -1,5 +1,5 @@
 // base/kaldi-math-test.cc
-// 
+//
 // Copyright 2009-2011  Microsoft Corporation;  Yanmin Qian;  Jan Silovsky
 
 // See ../../COPYING for clarification regarding multiple authors
@@ -17,6 +17,7 @@
 // See the Apache 2 License for the specific language governing permissions and
 // limitations under the License.
 #include "base/kaldi-math.h"
+#include <limits>
 #include "base/timer.h"
 
 namespace kaldi {
@@ -25,8 +26,10 @@ template<class I> void UnitTestGcdLcmTpl() {
   for (I a = 1; a < 15; a++) {  // a is min gcd.
     I b = (I)(Rand() % 10);
     I c = (I)(Rand() % 10);
-    if (Rand()%2 == 0 && std::numeric_limits<I>::is_signed) b = -b;
-    if (Rand()%2 == 0 && std::numeric_limits<I>::is_signed) c = -c;
+    if (std::numeric_limits<I>::is_signed) {
+      if (Rand() % 2 == 0) b = -b;
+      if (Rand() % 2 == 0) c = -c;
+    }
     if (b == 0 && c == 0) continue;  // gcd not defined for such numbers.
     I g = Gcd(b*a, c*a);
     KALDI_ASSERT(g >= a);
@@ -34,7 +37,7 @@ template<class I> void UnitTestGcdLcmTpl() {
     KALDI_ASSERT((c*a) % g == 0);
 
     // test least common multiple
-    if (b <= 0 || c <= 0) continue; // lcm not defined unless both positive.
+    if (b <= 0 || c <= 0) continue;  // lcm not defined unless both positive.
     I h = Lcm(b*a, c*a);
     KALDI_ASSERT(h != 0 && (h % (b*a)) == 0 &&
                  (h % (c*a)) == 0);
@@ -51,18 +54,17 @@ void UnitTestRoundUpToNearestPowerOfTwo() {
   KALDI_ASSERT(RoundUpToNearestPowerOfTwo(255) == 256);
   KALDI_ASSERT(RoundUpToNearestPowerOfTwo(256) == 256);
   KALDI_ASSERT(RoundUpToNearestPowerOfTwo(257) == 512);
-  KALDI_ASSERT(RoundUpToNearestPowerOfTwo(1073700000) == 1073741824  );
+  KALDI_ASSERT(RoundUpToNearestPowerOfTwo(1073700000) == 1073741824);
 }
 
 void UnitTestGcdLcm() {
   UnitTestGcdLcmTpl<int>();
   UnitTestGcdLcmTpl<size_t>();
-  UnitTestGcdLcmTpl<unsigned short>();
+  UnitTestGcdLcmTpl<int16>();
 }
 
 void UnitTestRand() {
   // Testing random-number generation.
-  using namespace kaldi;
   std::cout << "Testing random-number generation.  "
             << "If there is an error this may not terminate.\n";
   std::cout << "If this does not terminate, look more closely.  "
@@ -74,14 +76,14 @@ void UnitTestRand() {
       float sum = RandUniform()-0.5;
       for (int j = 0; ; j++) {
         sum += RandUniform()-0.5;
-        if (std::abs(sum) < 0.5*sqrt((double)j)) break;
+        if (std::abs(sum) < 0.5*sqrt(static_cast<double>(j))) break;
       }
     }
     {  // test RandGauss.
       float sum = RandGauss();
       for (int j = 0; ; j++) {
         sum += RandGauss();
-        if (std::abs(sum) < 0.5*sqrt((double)j)) break;
+        if (std::abs(sum) < 0.5*sqrt(static_cast<double>(j))) break;
       }
     }
     {  // test RandGauss.
@@ -90,8 +92,9 @@ void UnitTestRand() {
         float a, b;
         RandGauss2(&a, &b);
         if (i % 2 == 0) sum += a;
-        else sum += b;
-        if (std::abs(sum) < 0.5*sqrt((double)j)) break;
+        else
+          sum += b;
+        if (std::abs(sum) < 0.5*sqrt(static_cast<double>(j))) break;
       }
     }
     {  // test poisson_Rand().
@@ -102,7 +105,7 @@ void UnitTestRand() {
       double sum = RandPoisson(lambda) - lambda;  // expected value is zero.
       for (int j = 0; ; j++) {
         sum += RandPoisson(lambda) - lambda;
-        if (std::abs(sum) < 0.5*sqrt((double)j)) break;
+        if (std::abs(sum) < 0.5*sqrt(static_cast<double>(j))) break;
       }
     }
 
@@ -135,7 +138,8 @@ void UnitTestRand() {
       float sum = RandInt(minint, maxint) +  0.5*(minint+maxint);
       for (int j = 0; ; j++) {
         sum += RandInt(minint, maxint) - 0.5*(minint+maxint);
-        if (std::abs((float)sum) < 0.5*sqrt((double)j)*(maxint-minint)) break;
+        if (std::abs(static_cast<float>(sum)) <
+            0.5*sqrt(static_cast<double>(j))*(maxint-minint)) break;
       }
     }
     { // test RandPrune in basic way.
@@ -154,17 +158,17 @@ void UnitTestRand() {
 }
 
 void UnitTestLogAddSub() {
-  using namespace kaldi;
   for (int i = 0; i < 100; i++) {
     double f1 = Rand() % 10000, f2 = Rand() % 20;
-    double add1 = exp(LogAdd(log(f1), log(f2)));
-    double add2 = exp(LogAdd(log(f2), log(f1)));
+    double add1 = Exp(LogAdd(Log(f1), Log(f2)));
+    double add2 = Exp(LogAdd(Log(f2), Log(f1)));
     double add = f1 + f2, thresh = add*0.00001;
     KALDI_ASSERT(std::abs(add-add1) < thresh && std::abs(add-add2) < thresh);
 
 
     try {
-      double f2_check = exp(LogSub(log(add), log(f1))), thresh = (f2*0.01)+0.001;
+      double f2_check = Exp(LogSub(Log(add), Log(f1))),
+             thresh = (f2*0.01)+0.001;
       KALDI_ASSERT(std::abs(f2_check-f2) < thresh);
     } catch(...) {
       KALDI_ASSERT(f2 == 0);  // It will probably crash for f2=0.
@@ -173,8 +177,8 @@ void UnitTestLogAddSub() {
 }
 
 void UnitTestDefines() {  // Yes, we even unit-test the preprocessor statements.
-  KALDI_ASSERT(exp(kLogZeroFloat) == 0.0);
-  KALDI_ASSERT(exp(kLogZeroDouble) == 0.0);
+  KALDI_ASSERT(Exp(kLogZeroFloat) == 0.0);
+  KALDI_ASSERT(Exp(kLogZeroDouble) == 0.0);
   BaseFloat den = 0.0;
   KALDI_ASSERT(KALDI_ISNAN(0.0 / den));
   KALDI_ASSERT(!KALDI_ISINF(0.0 / den));
@@ -189,17 +193,20 @@ void UnitTestDefines() {  // Yes, we even unit-test the preprocessor statements.
   std::cout << 1.0+DBL_EPSILON;
   std::cout << 1.0 + 0.5*DBL_EPSILON;
   KALDI_ASSERT(1.0 + DBL_EPSILON != 1.0 && 1.0 + (0.5*DBL_EPSILON) == 1.0
-               && "If this test fails, you can probably just comment it out-- may mean your CPU exceeds expected floating point precision");
+               && "If this test fails, you can probably just comment it out-- "
+               "may mean your CPU exceeds expected floating point precision");
   KALDI_ASSERT(1.0f + FLT_EPSILON != 1.0f && 1.0f + (0.5f*FLT_EPSILON) == 1.0f
-               && "If this test fails, you can probably just comment it out-- may mean your CPU exceeds expected floating point precision");
-  KALDI_ASSERT(std::abs(sin(M_PI)) < 1.0e-05 && std::abs(cos(M_PI)+1.0) < 1.0e-05);
-  KALDI_ASSERT(std::abs(sin(M_2PI)) < 1.0e-05 && std::abs(cos(M_2PI)-1.0) < 1.0e-05);
-  KALDI_ASSERT(std::abs(sin(exp(M_LOG_2PI))) < 1.0e-05);
-  KALDI_ASSERT(std::abs(cos(exp(M_LOG_2PI)) - 1.0) < 1.0e-05);
+               && "If this test fails, you can probably just comment it out-- "
+               "may mean your CPU exceeds expected floating point precision");
+  KALDI_ASSERT(std::abs(sin(M_PI)) < 1.0e-05
+               && std::abs(cos(M_PI)+1.0) < 1.0e-05);
+  KALDI_ASSERT(std::abs(sin(M_2PI)) < 1.0e-05
+               && std::abs(cos(M_2PI)-1.0) < 1.0e-05);
+  KALDI_ASSERT(std::abs(sin(Exp(M_LOG_2PI))) < 1.0e-05);
+  KALDI_ASSERT(std::abs(cos(Exp(M_LOG_2PI)) - 1.0) < 1.0e-05);
 }
 
 void UnitTestAssertFunc() {  // Testing Assert** *functions
-  using namespace kaldi;
   for (int i = 1; i < 100; i++) {
     float f1 = Rand() % 10000 + 1, f2 = Rand() % 20 + 1;
     float tmp1 = f1 * f2;
@@ -231,7 +238,7 @@ template<class I> void UnitTestFactorizeTpl() {
 void UnitTestFactorize() {
   UnitTestFactorizeTpl<int>();
   UnitTestFactorizeTpl<size_t>();
-  UnitTestFactorizeTpl<unsigned short>();
+  UnitTestFactorizeTpl<int16>();
 }
 
 void UnitTestApproxEqual() {
@@ -251,7 +258,7 @@ void UnitTestApproxEqual() {
   KALDI_ASSERT(!ApproxEqual(-std::numeric_limits<float>::infinity(),
                             0));
   KALDI_ASSERT(!ApproxEqual(-std::numeric_limits<float>::infinity(),
-                            1));               
+                            1));
 }
 
 template<class Real>
@@ -270,8 +277,8 @@ void UnitTestExpSpeed() {
   KALDI_ASSERT(sum > 0.0);  // make it harder for the compiler to optimize Exp
                             // away, as we have a conditional.
   Real flops = 1.0e-06 * num_ops / tim.Elapsed();
-  KALDI_LOG << "Megaflops doing Exp(" << (sizeof(Real) == 4 ? "float" : "double")
-            << ") is " << flops;
+  KALDI_LOG << "Megaflops doing Exp("
+            << (sizeof(Real) == 4 ? "float" : "double") << ") is " << flops;
 }
 
 
@@ -284,15 +291,15 @@ void UnitTestLogSpeed() {
   Timer tim;
   while (tim.Elapsed() < time) {
     for (int i = 0; i < block_size; i++) {
-      sum += Log((float)(i + 1));
+      sum += Log(static_cast<float>(i + 1));
     }
     num_ops += block_size;
   }
   KALDI_ASSERT(sum > 0.0);  // make it harder for the compiler to optimize Log
                             // away, as we have a conditional.
   Real flops = 1.0e-06 * num_ops / tim.Elapsed();
-  KALDI_LOG << "Megaflops doing Log(" << (sizeof(Real) == 4 ? "float" : "double")
-            << ") is " << flops;
+  KALDI_LOG << "Megaflops doing Log("
+            << (sizeof(Real) == 4 ? "float" : "double") << ") is " << flops;
 }
 
 }  // end namespace kaldi.
