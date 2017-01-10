@@ -52,7 +52,7 @@ void TxpSylmax::Maxonset(PhoneVector *pronptr) {
       for (i = pos; i < pos + nlen; i++)
         pron[i].type = TXPSYLMAX_TYPE_NUCLEUS;
       pron[pos + nlen - 1].codab = true;
-      pos += nlen;
+      if (nlen > 1) pos += nlen - 1;
     }
   }
   AddSylBound(&pron);
