@@ -495,19 +495,28 @@ bool CexFuncStringPhraseTobiEndTone(const TxpCexspec* cex,
   node = context->GetSpurt(0, feat->pause_context);
   // Iterate through spurt's children to find break.
   pugi::xml_node break_node;
+  pugi::xml_node next_break_node;
 
   break_node = node.child("break");
 
   if (break_node.empty()) {
     cex->AppendNull(*feat, buffer);
   } else {
+    // BP 20170307: we were getting the first break type instead of the last one!
+    next_break_node = break_node.next_sibling("break");
+    while (!next_break_node.empty()) {
+        break_node = next_break_node;
+        next_break_node = break_node.next_sibling("break");
+    }
     // Get break type.
     break_type = atoi(break_node.attribute("type").value());
-
+    
     // Convert the type to a name.
     const char* break_name;
-
-    if (break_type == 3) {
+    
+    // BP 20170307: we were returning LH only for break type 3; now for every type except 4 and 0
+    // - this is weird but identical behaviour to commercial front-end
+    if (break_type >= 1 && break_type <= 3) {
       break_name = "LH";
       // check and append value
       okay = cex->AppendValue(*feat, okay, break_name, buffer);
