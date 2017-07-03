@@ -98,6 +98,7 @@ void ApplyMinmax(const MatrixBase<double> &stats,
     double min, max, offset, scale;
     min = stats(0, d);
     max = stats(1, d);
+    if (min + 1e-10 >= max) max = min + 1e-10;
     //if (!var_norm) {
     //scale = 1.0;
     offset = (max * ca - min * da) / (max - min);

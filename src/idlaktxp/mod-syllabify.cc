@@ -52,17 +52,21 @@ bool TxpSyllabify::Process(pugi::xml_document* input) {
          it2 != tks.end();
          ++it2) {
       pugi::xml_node node = (*it2).node();
-      if (!node.attribute("pron").empty())
+      if (!node.attribute("pron").empty() && strlen(node.attribute("pron").value()) > 0) {
         sylmax_.GetPhoneVector(node.attribute("pron").value(), &pvector);
-      if (it2 == tks.end() - 1) pvector[pvector.size() - 1].cross_word = false;
-      sylmax_.Maxonset(&pvector);
-      if (it2 != tks.begin()) {
-        sylmax_.Writespron(&pvector, &sylpron);
-        pre_node.append_attribute("spron").set_value(sylpron.c_str());
-        // add syllabic xml structure
-        _add_sylxml(sylpron.c_str(), &pre_node);
+        if (it2 == tks.end() - 1) pvector[pvector.size() - 1].cross_word = false;
+        sylmax_.Maxonset(&pvector);
+        if (it2 != tks.begin()) {
+          sylmax_.Writespron(&pvector, &sylpron);
+          pre_node.append_attribute("spron").set_value(sylpron.c_str());
+          // add syllabic xml structure
+          _add_sylxml(sylpron.c_str(), &pre_node);
+        }
+        pre_node = node;
       }
-      pre_node = node;
+      else {
+          node.append_attribute("spron").set_value("");
+      }
     }
     if (!pre_node.empty()) {
       sylmax_.Writespron(&pvector, &sylpron);

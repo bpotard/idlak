@@ -76,10 +76,12 @@ int main(int argc, char *argv[]) {
 
     // compute the shift and scale per each dimension
     for(int32 d = 0; d < minmax_stats.NumCols()-1; d++) {
-	BaseFloat min = minmax_stats(0, d);
-	BaseFloat max = minmax_stats(1, d);
-	shift(d) = (max * ca - min * da) / (max - min);
-	scale(d) = (da - ca) / (max - min);
+        BaseFloat min = minmax_stats(0, d);
+        BaseFloat max = minmax_stats(1, d);
+        if (min + 1e-7 >= max) max = min + 1e-7;
+        shift(d) = (max * ca - min * da) / (max - min);
+        scale(d) = (da - ca) / (max - min);
+        std::cerr << d << ": " <<  shift(d) << "," << scale(d) << '\n';
     }
 
     // we will put the shift and scale to the nnet
