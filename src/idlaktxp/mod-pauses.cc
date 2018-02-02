@@ -145,7 +145,7 @@ bool TxpPauses::ProcessFile(pugi::xml_node* file) {
     }
   }
   // last item
-  if (!breakitem) {
+  if (!breakitem && ptk) {
     if (pbreak_.GetPbreak(ptk->attribute("pstpunc").value(),
                           TXPPBREAK_POS_PST, pbreakpunc)) {
       pbreak = &pbreakpunc;

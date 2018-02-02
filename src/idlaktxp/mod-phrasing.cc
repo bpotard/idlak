@@ -62,6 +62,11 @@ bool TxpPhrasing::ProcessFile(pugi::xml_node* rootnode) {
   int32 phraseid = 1;
   int32 uttid = 1;
   int32 wordid = 1;
+  pugi::xpath_node_set breaks;
+  // Handle empty spurt
+  breaks = rootnode->select_nodes(".//break");
+  if (breaks.size() == 0) return true;
+
   uttnode = rootnode->append_child("utt");
   uttnode.append_attribute("uttid").set_value(uttid);
   lastbreak = rootnode->select_nodes("(.//break)[last()]").first().node();
