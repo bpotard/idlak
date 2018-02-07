@@ -1,5 +1,5 @@
-
-import sys, os, xml.sax, re
+# -*- coding: utf-8 -*-
+import sys, os, xml.sax, re, time
 from xml.dom.minidom import parse, parseString, getDOMImplementation
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -8,7 +8,7 @@ DESCRIPTION = 'Creates kaldi compatible lang directory'
 FRAMESHIFT=0.005
 
 # Add to path
-sys.path = sys.path + [SCRIPT_DIR + '/../modules']
+sys.path = sys.path + [SCRIPT_DIR]# + '/../modules']
 
 logopts = {'logging':{
     'nolog':"False",
@@ -19,8 +19,96 @@ logopts = {'logging':{
     'logtostderr':"True"}
 }
 
-from alignsetup_def import saxhandler as idlak_saxhandler
-from build_configuration import Logger
+#from alignsetup_def import saxhandler as idlak_saxhandler
+#from build_configuration import Logger
+
+## Logger
+class Logger:
+    loglevels = {'none':5, 'critical':4, 'error':3, 'warn':2, 'info':1, 'debug':0}
+    curlevel = 0
+    module = None
+    logfname = None
+    nolog = False
+    logtofile = False
+    logtostderr = False
+    # set up a logger
+    def __init__(self, module, data):
+        self.module = module
+        if data['logging']['loglevel']:
+            if not self.loglevels.has_key(data['logging']['loglevel'].lower()):
+                self.log('Warning', 'Bad log level in configuration: %s' % (level))
+            else:
+                self.curlevel = self.loglevels[data['logging']['loglevel'].lower()]
+        if data['logging']['logtofile'] == 'True':
+            if data['logging']['logname']:
+                self.logfname = os.path.join(data['logging']['logdir'], data['logging']['logname'])
+            else:
+                self.logfname = os.path.join(data['logging']['logdir'], data['general']['buildid'] + '.log')
+            # try to open file to force an error if not writeable
+            fp = open(self.logfname, 'a')
+            fp.close()
+            self.logtofile = True
+        if data['logging']['nolog'] == 'True':
+            self.nolog = True
+        if data['logging']['logtostderr'] == 'True':
+            self.logtostderr = True
+        self.log('INFO', 'Started Logging')
+    # log a message
+    def log(self, level, message):
+        # check logging is switched on
+        if self.nolog:
+            return
+        # check valid logging level
+        if self.loglevels.has_key(level.lower()):
+            # check logging at this level
+            if self.loglevels[level.lower()] >= self.curlevel:
+                msg = self.module.upper() + '[' + time.asctime() + '] ' + level.upper() + ':' \
+                    +  message + '\n'
+                if self.logtofile:
+                    fp = open(self.logfname, 'a')
+                    fp.write(msg)
+                    fp.close()
+                if self.logtostderr:
+                    sys.stderr.write(msg)
+        else:
+            self.log('Warn', 'Bad log level: %s Message: %s' % (level, message))
+
+# sax handler 
+class idlak_saxhandler(xml.sax.ContentHandler):
+    def __init__(self):
+        self.id = ''
+        self.data = [[]]
+        self.ids = []
+        self.lex = {}
+        self.oov = {}
+        
+    def startElement(self, name, attrs):
+        if name == "fileid":
+            newid = attrs['id']
+            if self.id and newid != self.id:
+                self.data.append([])
+                self.id = newid
+                self.ids.append(self.id)
+            if not self.id:
+                self.id = newid
+                self.ids.append(self.id)
+        if name == "tk":
+            try:
+                word = attrs['norm'].upper().encode('utf8')
+            except:
+                print "Failed parsing: %s, attrs:" % name, attrs.getNames(), attrs.getValue('wordid')
+                raise
+            self.data[-1].append(word)
+            if not self.lex.has_key(word):
+                self.lex[word] = {}
+            if attrs.has_key('lts') and attrs['lts'] == 'true':
+                self.oov[word] = 1
+            if attrs.has_key('altprons'):
+                prons = attrs['altprons'].split(', ')
+            else:
+                prons = [attrs['pron']]
+            for p in prons:
+                self.lex[word][p] = 1
 
 def binary_array(v, l):
     s = ""
@@ -128,19 +216,91 @@ def forward_context(logger, input_fname, input_freqtable_fname, cexoutput_filena
         fp.write('\n')
     fp.close()
 
+idlak_pat=re.compile('\^(.*?)\~(.*?)\-(.*?)\+(.*?)\=(.*)')
+hts_pat=re.compile('(.*?)\^(.*?)\-(.*?)\+(.*?)\=(.*)')
+def update_freq_table(logger, cex_string, freqtables):
+    ll = cex_string.split()
+    quin = ll[0]
+    cexs = ll[1:]
+    # get context phone name (may be different to xml phon val)
+    pat = re.match(idlak_pat, quin)
+    if not pat:
+        pat = re.match(hts_pat, quin)
+    if not pat:
+        logger.log('critical', 'bad phone context string %s' %
+                   (quin))
+    phonename = pat.group(3)
+    # currently add phone contexts as first 5 features
+    # this to avoid a mismatch between manual phone
+    # questions and the kaldi context information
+    cexs = [pat.group(1), pat.group(2), pat.group(3), pat.group(4), pat.group(5)] + cexs
+    # Currently set all contexts in pause to 0
+    #if phonename == 'pau':
+    #    for i in range(len(cexs)): cexs[i] = '0'
+    # prepend the phone to keep track of silences and for sanity checks
+    cexs.insert(0, phonename)
+
+    # keep track of frequencies 
+    for i in range(len(cexs)):
+        key = 'cex' + ('000' + str(i))[-3:]
+        if not freqtables.has_key(key):
+            freqtables[key] = {}
+        if not freqtables[key].has_key(cexs[i]):
+            freqtables[key][cexs[i]] = 1
+        else:
+            freqtables[key][cexs[i]] += 1
+    return cexs
+
+
+# sax handler 
+class idlakcexhandler(xml.sax.ContentHandler):
+    def __init__(self):
+        self.id = None
+        self.pron = None
+        self.ids = []
+        self.prons = {}
+
+    def characters(self, content):
+        if self.pron != None:
+            self.prons[self.id][-1][1] += content
+        
+    def startElement(self, name, attrs):
+        if name == "fileid":
+            newid = attrs['id']
+            self.id = newid
+            self.ids.append(self.id)
+            self.prons[self.id] = []
+        if name == "phon":
+            self.pron = attrs['val']
+            self.prons[self.id].append([self.pron, u""])
+
+    def endElement(self, name):
+        if name == "fileid":
+            self.id = None
+        elif name == "phon":
+            self.pron = None
+
 def make_output_kaldidnn_cex(logger, input_filename, output_filename, cexoutput_filename, rname = "alice"):
-    dom = parse(input_filename)
+    #dom = parse(input_filename)
     # get header information
-    header = dom.getElementsByTagName('txpheader')[0]
-    cexheader = header.getElementsByTagName('cex')[0]
+    #header = dom.getElementsByTagName('txpheader')[0]
+    #cexheader = header.getElementsByTagName('cex')[0]
+
+    p = xml.sax.make_parser()
+    handler = idlakcexhandler()
+    p.setContentHandler(handler)
+    p.parse(open(input_filename, "r"))
+
+    
     
     # get by file ids
-    fileids = dom.getElementsByTagName('fileid')
-    if len(fileids) == 0:
-        fileids = dom.getElementsByTagName('spt')
-        for id, f in enumerate(fileids):
-            idstr = rname + ('000' + str(id+1))[-3:]
-            f.setAttribute('id', idstr)
+    #fileids = dom.getElementsByTagName('fileid')
+    #if len(fileids) == 0:
+    #    fileids = dom.getElementsByTagName('spt')
+    #    for id, f in enumerate(fileids):
+    #        idstr = rname + ('000' + str(id+1))[-3:]
+    #        f.setAttribute('id', idstr)
+    fileids = handler.ids
 
     if output_filename == None or output_filename == '-':
         output_file = sys.stdout
@@ -158,44 +318,24 @@ def make_output_kaldidnn_cex(logger, input_filename, output_filename, cexoutput_
     freqtables = {}
     output_contexts = []
     for f in fileids:
-        phons = f.getElementsByTagName('phon')
-        output_contexts.append([f.getAttribute('id'), []])
+        phons = handler.prons[f]
+        #phons = f.getElementsByTagName('phon')
+        output_contexts.append([f, []])
+        #output_contexts.append([f.getAttribute('id'), []])
         last_phon_name = ''
         for p in phons:
-            phon_name = p.getAttribute('val')
+            phon_name, cex_string = p #p.getAttribute('val')
             # Currently ignore utt internal split pauses
             if phon_name == 'pau' and last_phon_name == 'pau':
                 last_phon_name = phon_name
                 continue
-            cex_string = p.firstChild.nodeValue
-            cexs = cex_string.split()[1:]
-            # get context phone name (may be different to xml phon val)
-            pat = re.match('\^(.*?)\~(.*?)\-(.*?)\+(.*?)\=(.*)', cex_string.split()[0])
-            if not pat:
-                logger.log('critical', 'bad phone context string %s %s' %
-                           (f, cex_string.split()[0]))
-            phonename = pat.group(3)
-            # currently add phone contexts as first 5 features
-            # this to avoid a mismatch between manual phone
-            # questions and the kaldi context information
-            cexs = [pat.group(1), pat.group(2), pat.group(3), pat.group(4), pat.group(5)] + cexs
-            # Currently set all contexts in pause to 0
-            #if phonename == 'pau':
-            #    for i in range(len(cexs)): cexs[i] = '0'
-            # prepend the phone to keep track of silences and for sanity checks
-            cexs.insert(0, phonename)
+            #cex_string = p[1]#p.firstChild.nodeValue
+            cexs = update_freq_table(logger, cex_string, freqtables)
             # save/write contexts
-            output_file.write('%s %s\n' % (f.getAttribute('id'), ' '.join(cexs)))
+            #output_file.write('%s %s\n' % (f.getAttribute('id'), ' '.join(cexs)))
+            output_file.write('%s %s\n' % (f, ' '.join(cexs)))
             output_contexts[-1][-1].append(cexs)
-            # keep track of frequencies 
-            for i in range(len(cexs)):
-                key = 'cex' + ('000' + str(i))[-3:]
-                if not freqtables.has_key(key):
-                    freqtables[key] = {}
-                if not freqtables[key].has_key(cexs[i]):
-                    freqtables[key][cexs[i]] = 1
-                else:
-                    freqtables[key][cexs[i]] += 1
+            
             last_phon_name = phon_name
             
     if output_filename != None and output_filename != '-':
@@ -245,7 +385,7 @@ def make_output_kaldidnn_cex(logger, input_filename, output_filename, cexoutput_
         fp.write('\n')
     fp.close()
 
-    return cexs, output_contexts, freqtables, cexheader, lookuptables
+    return cexs, output_contexts, freqtables#, cexheader, lookuptables
 
 def idlak_make_lang(textfile, datadir, langdir):
         p = xml.sax.make_parser()
@@ -255,9 +395,12 @@ def idlak_make_lang(textfile, datadir, langdir):
         fp = open(os.path.join(datadir, "text"), 'w') 
         for i in range(len(handler.ids)):
             #if valid_ids.has_key(handler.ids[i]):
-                # If we are forcing beginning and end silences add <SIL>s
-            fp.write("%s %s\n" % (handler.ids[i], ' '.join(handler.data[i])))
-            #fp.write("%s %s\n" % (handler.ids[i], ' '.join(handler.data[i])))
+            # If we are forcing beginning and end silences add <SIL>s
+            #fp.write(("%s %s\n" % (handler.ids[i], ' '.join(handler.data[i]))).encode("utf8"))
+            s = handler.ids[i] + u" "
+            s += ' '.join(map(lambda x: x.decode('utf-8'), handler.data[i])) + "\n"
+            #s = u"%s %s\n" % (handler.ids[i], u' '.join(handler.data[i]))
+            fp.write(s.encode('utf-8'))
         fp.close()
         
         # lexicon and oov have all words for the corpus
@@ -287,9 +430,9 @@ def idlak_make_lang(textfile, datadir, langdir):
                 pp = p.split()
                 for phone in pp:
                     phones[phone] = 1
-                fplex.write("%s %s\n" % (w, p))
+                fplex.write(("%s %s\n" % (utf8w, p)).encode('utf-8'))
             if handler.oov.has_key(w):
-                fpoov.write("%s %s\n" % (w, prons[0]))
+                fpoov.write(("%s %s\n" % (utf8w, prons[0])).encode('utf-8'))
         fplex.close()
         fpoov.close()
         # write phone set
@@ -318,30 +461,44 @@ def idlak_make_lang(textfile, datadir, langdir):
         fp = open(os.path.join(langdir, "extra_questions.txt"), 'w')
         fp.close()
 
-def load_labs(labfile):
+def load_labs(labfile, statefile = None):
     out = {}
-    for l in open(labfile).readlines():
+    states = None
+    if statefile is not None:
+        states = open(statefile).readlines()
+    for j, l in enumerate(open(labfile)):
         ll = l.strip().split()
+        ls = []
+        if states is not None:
+            ls = states[j].strip().split()
         key = ll[0]
         phones = []
         oldp = ll[1]
         np = 1
         start_time = 0.0
+        state = 0
+        olds = 0
         for i, p in enumerate(ll[2:]):
-            if p != oldp or i == len(ll) - 3:
-                if p == oldp: np += 1
+            if len(ls):
+                state = int(ls[i+2])
+            if p != oldp or olds > state or i == len(ll) - 3:
+                if p == oldp and olds <= state: np += 1
                 end_time = round(start_time + np * FRAMESHIFT, 4)
                 phones.append([start_time, end_time, oldp])
                 start_time = end_time
-                if p != oldp:
+                #if p == oldp and olds > state:
+                #    print "Duplicate phone encountered"
+                if p != oldp or olds > state:
                     np = 1
                     oldp = p
+                    olds = 0
                     # Border case where there is a single lonely phone at the end; should not happen
                     if i == len(ll) - 3:
                         end_time = round(start_time + np * FRAMESHIFT, 4)
                         phones.append([start_time, end_time, oldp])
             else:
                 np += 1
+                olds = state
         out[key] = phones
     return out
 
@@ -367,15 +524,18 @@ def load_words(wordfile):
     return out
 
 # Recreate an idlak compatible xml file from word and phone alignment
-def write_xml_textalign(breaktype, breakdef, labfile, wordfile, output):
+def write_xml_textalign(breaktype, breakdef, labfile, wordfile, output, statefile=None):
     impl = getDOMImplementation()
 
     document = impl.createDocument(None, "document", None)
     doc_element = document.documentElement
+
+    if statefile is None:
+        print "WARNING: alignment with phone identity only is not accurate enough. Please use states aligment as final argument."
     
     #labs = glob.glob(labdir + '/*.lab')
     #labs.sort()
-    all_labs = load_labs(labfile)
+    all_labs = load_labs(labfile, statefile)
     all_words = load_words(wordfile)
     f = open(output, 'w')
     f.write('<document>\n')
@@ -446,9 +606,9 @@ def main():
                       help = 'Root name to use for generating spurtID from anonymous spt')
     opts, args = parser.parse_args()
     if int(opts.mode) == 0 and len(args) == 3:
-        idlak_make_lang(args[0], args[1], args[2])
-    elif int(opts.mode) == 1 and len(args) == 5:
-        write_xml_textalign(args[0], args[1], args[2], args[3], args[4])
+        idlak_make_lang(*args)
+    elif int(opts.mode) == 1 and len(args) in [5, 6]:
+        write_xml_textalign(*args)
     elif int(opts.mode) == 2:
         logger = Logger('kaldicex', logopts)
         if len(args) == 2:
