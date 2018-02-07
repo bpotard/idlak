@@ -231,7 +231,7 @@ for step in full; do
 	| utils/int2sym.pl -f 5 $lang/words.txt > $ali/wrdalign.dat
     
     # Regenerate text output from alignment
-    python $KALDI_ROOT/idlak-voice-build/utils/idlak_make_lang.py --mode 1 "2:0.03,3:0.2" "4" $ali/phones.txt $ali/wrdalign.dat data/$step/text_align.xml
+    python $KALDI_ROOT/idlak-voice-build/utils/idlak_make_lang.py --mode 1 "2:0.03,3:0.2" "4" $ali/phones.txt $ali/wrdalign.dat data/$step/text_align.xml $ali/states.tra
 
     # Generate corresponding quinphone full labels
     idlaktxp --pretty --tpdb=$tpdb data/$step/text_align.xml data/$step/text_anorm.xml
