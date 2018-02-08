@@ -186,8 +186,10 @@ int main(int argc, char *argv[]) {
           // chech for dimension
 	  if (tgt_mat.NumRows() != fea_mat.NumRows()) {
 	    KALDI_WARN << "Alignment has wrong size "<< (tgt_mat.NumRows()) << " vs. "<< (fea_mat.NumRows()) << " for utterance " << fea_utt;
-	    /*num_other_error++;*/
-	    //continue;
+	    num_other_error++;
+            feature_reader.Next();
+            targets_reader.Next();
+	    continue;
 	  }
 	  /*else {*/
 	    // push features/targets to GPU
@@ -214,7 +216,7 @@ int main(int argc, char *argv[]) {
 	  if (frame_weights != "") {
 	    weights = weights_reader.Value();
 	  } else { // all per-frame weights are 1.0
-	    weights.Resize(fea_mat.NumRows());
+	    weights.Resize(feats.NumRows());
 	    weights.Set(1.0);
 	  }
 	  //targets = tgt_mat;
