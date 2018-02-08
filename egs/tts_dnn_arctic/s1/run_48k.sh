@@ -30,7 +30,9 @@ source path.sh
 # upgrade to using 48k data from HTS demo
 srate=48000
 FRAMESHIFT=0.005
-TMPDIR=/tmp
+#TMPDIR=/tmp
+TMPDIR=/share/cere01/potard
+nj=4
 # Clean up
 rm -rf data/train data/eval data/dev data/train_* data/eval_* data/dev_* data/full
 
@@ -45,19 +47,21 @@ for spk in $spks; do
     url=http://festvox.org/cmu_arctic/cmu_arctic/orig/$arch
     laburl=http://festvox.org/cmu_arctic/cmuarctic.data
     audio_dir=rawaudio/cmu_us_${spk}_arctic/48k
+    #audio_dir_16k=rawaudio/cmu_us_${spk}_arctic/16k
     label_dir=labels/cmu_us_${spk}_arctic
     # Download data
     if [ ! -e $audio_dir ]; then
 	    mkdir -p rawaudio
 	    cd rawaudio
-	    wget $url
+	    wget -N -c $url
 	    tar xjf $arch
 	    cd ..
-        mkdir -p $audio_dir
+        mkdir -p $audio_dir 
         for i in rawaudio/cmu_us_${spk}_arctic/orig/*.wav; do
             # sox $i -r 48k $audio_dir/`basename $i` remix 1 upsample 2
             # sox $i $audio_dir/`basename $i` remix 1 rate -v -s -a 48000 dither -s
             sox $i $audio_dir/`basename $i` remix 1 rate -v -s -a 48000 dither -s
+            #sox $i $audio_dir_16k/`basename $i` remix 1 rate -v -s -a 16000 dither -s
         done
     fi
     if [ ! -e $label_dir ]; then
@@ -76,10 +80,10 @@ for spk in $spks; do
     makeid="xargs -n 1 -I {} -n 1 awk -v lst={} -v spk=$spk BEGIN{print(gensub(\".*/([^.]*)[.].*\",spk\"_\\\\1\",\"g\",lst),lst)}"
     makelab="awk -v spk=$spk '{u=\$2;\$1=\"\";\$2=\"\";\$NF=\"\";print(\"<fileid id=\\\"\" spk \"_\" u \"\\\">\",substr(\$0,4,length(\$0)-5),\"</fileid>\")}'"
 
-    find $audio_dir -iname "$train_pat".wav  | sort | $makeid >> data/train/wav.scp
+    find $audio_dir -iname "$train_pat".wav  | grep -v "$dev_rgx" | sort | $makeid >> data/train/wav.scp
     find $audio_dir -iname "$dev_pat".wav    | sort | $makeid >> data/dev/wav.scp
 
-    grep "$train_rgx" $label_dir/cmuarctic.data | sort | eval "$makelab" >> data/train/text.xml
+    grep "$train_rgx" $label_dir/cmuarctic.data | grep -v "$dev_rgx" | sort | eval "$makelab" >> data/train/text.xml
     grep "$dev_rgx"   $label_dir/cmuarctic.data | sort | eval "$makelab" >> data/dev/text.xml
 
     # Generate utt2spk / spk2utt info
@@ -112,16 +116,16 @@ export featdir=$TMPDIR/dnn_feats/arctic2
 
 # Use kaldi to generate MFCC features for alignment
 for step in full; do
-    steps/make_mfcc.sh --mfcc-config conf/mfcc-48k.conf data/$step exp/make_mfcc/$step $featdir
+    steps/make_mfcc.sh --nj $nj --mfcc-config conf/mfcc-48k.conf data/$step exp/make_mfcc/$step $featdir
     steps/compute_cmvn_stats.sh data/$step exp/make_mfcc/$step $featdir
 done
 
 # Use Kaldi + SPTK tools to generate F0 / BNDAP / MCEP
 # NB: respective configs are in conf/pitch.conf, conf/bndap.conf, conf/mcep.conf
-for step in train dev; do
+for step in dev train; do
     rm -f data/$step/feats.scp
     # Generate f0 features
-    steps/make_pitch.sh --pitch-config conf/pitch-48k.conf  data/$step    exp/make_pitch/$step   $featdir || exit 1;
+    steps/make_pitch.sh --nj $nj --pitch-config conf/pitch-48k.conf  data/$step    exp/make_pitch/$step   $featdir || exit 1;
     cp data/$step/pitch_feats.scp data/$step/feats.scp
     # Compute CMVN on pitch features, to estimate min_f0 (set as mean_f0 - 2*std_F0)
     steps/compute_cmvn_stats.sh data/$step    exp/compute_cmvn_pitch/$step   $featdir || exit 1;
@@ -141,17 +145,20 @@ for step in train dev; do
 	    subset_data_dir.sh --spk $spk data/$step 100000 data/${step}_$spk
 	    #cp data/$step/pitch_feats.scp data/${step}_$spk/
 	    # Regenerate pitch with more appropriate window
-	    steps/make_pitch.sh --pitch-config conf/pitch-48k.conf --frame_length $f0flen    data/${step}_$spk exp/make_pitch/${step}_$spk  $featdir || exit 1;
+	    steps/make_pitch.sh --nj $nj --pitch-config conf/pitch-48k.conf --frame_length $f0flen    data/${step}_$spk exp/make_pitch/${step}_$spk  $featdir || exit 1;
 	    # Generate Band Aperiodicity feature
-	    steps/make_bndap.sh --bndap-config conf/bndap-48k.conf --frame_length $bndapflen data/${step}_$spk exp/make_bndap/${step}_$spk  $featdir || exit 1;
+	    steps/make_bndap.sh --nj $nj --bndap-config conf/bndap-48k.conf --frame_length $bndapflen data/${step}_$spk exp/make_bndap/${step}_$spk  $featdir || exit 1;
+        # Generate LSF features
+        #steps/make_lsf.sh   --lsf-config conf/lsf-48k.conf  data/${step}_$spk exp/make_lsf/${step}_$spk   $featdir   || exit 1;
 	    # Generate Mel Cepstral features
-	    steps/make_mcep.sh  --mcep-config conf/mcep-48k.conf --frame_length $mcepflen  data/${step}_$spk exp/make_mcep/${step}_$spk   $featdir   || exit 1;
+	    steps/make_mcep.sh  --nj $nj --mcep-config conf/mcep-48k.conf --frame_length $mcepflen  data/${step}_$spk exp/make_mcep/${step}_$spk   $featdir   || exit 1;
     done
     # Merge features
     cat data/${step}_*/bndap_feats.scp > data/$step/bndap_feats.scp
     cat data/${step}_*/mcep_feats.scp > data/$step/mcep_feats.scp
+    #cat data/${step}_*/lsf_feats.scp > data/$step/lsf_feats.scp
     # Have to set the length tolerance to 1, as mcep files are a bit longer than the others for some reason
-    paste-feats --length-tolerance=1 scp:data/$step/pitch_feats.scp scp:data/$step/mcep_feats.scp scp:data/$step/bndap_feats.scp ark,scp:$featdir/${step}_cmp_feats.ark,data/$step/feats.scp
+    paste-feats --length-tolerance=2 scp:data/$step/pitch_feats.scp scp:data/$step/mcep_feats.scp scp:data/$step/bndap_feats.scp ark,scp:$featdir/${step}_cmp_feats.ark,data/$step/feats.scp
     # Compute CMVN on whole feature set
     steps/compute_cmvn_stats.sh data/$step exp/compute_cmvn/$step   data/$step || exit 1;
 done
@@ -194,28 +201,33 @@ expa=exp-align
 train=data/full
 #test=data/eval_mfcc
 
-steps/train_mono.sh  --nj 1 --cmd "$train_cmd" \
+# By default kaldi splits files per speaker when aligning;
+# "manually" split per utterance 
+split_data.sh --per-utt $train $nj
+[ -d $train/split$nj ] || mv $train/split${nj}utt $train/split$nj
+steps/train_mono.sh  --nj $nj --cmd "$train_cmd" \
   $train $lang $expa/mono || exit 1;
-steps/align_si.sh  --nj 1 --cmd "$train_cmd" \
+steps/align_si.sh  --nj $nj --cmd "$train_cmd" \
 $train $lang $expa/mono $expa/mono_ali
 steps/train_deltas.sh --cmd "$train_cmd" \
      5000 50000 $train $lang $expa/mono_ali $expa/tri1 || exit 1;
 
-steps/align_si.sh  --nj 1 --cmd "$train_cmd" \
+steps/align_si.sh  --nj $nj --cmd "$train_cmd" \
 $train data/lang $expa/tri1 $expa/tri1_ali || exit 1;
 steps/train_deltas.sh --cmd "$train_cmd" \
      5000 50000 $train $lang $expa/tri1_ali $expa/tri2 || exit 1;
 
-# Create alignments
-steps/align_si.sh  --nj 1 --cmd "$train_cmd" \
+# Create triphone alignments
+steps/align_si.sh  --nj $nj --cmd "$train_cmd" \
     $train $lang $expa/tri2 $expa/tri2_ali_full || exit 1;
 
 steps/train_deltas.sh --cmd "$train_cmd" \
     --context-opts "--context-width=5 --central-position=2" \
     5000 50000 $train $lang $expa/tri2_ali_full $expa/quin || exit 1;
 
-# Create alignments
-steps/align_si.sh  --nj 1 --cmd "$train_cmd" \
+# Create final alignments
+#split_data.sh --per-utt $train 9
+steps/align_si.sh  --nj $nj --cmd "$train_cmd" \
     $train $lang $expa/quin $expa/quin_ali_full || exit 1;
 
 
@@ -228,19 +240,19 @@ steps/align_si.sh  --nj 1 --cmd "$train_cmd" \
 for step in full; do
     ali=$expa/quin_ali_$step
     # Extract phone alignment
-    ali-to-phones --per-frame $ali/final.mdl ark:"gunzip -c $ali/ali.*.gz|" ark,t:- \
+    ali-to-phones --per-frame $ali/final.mdl ark:"gunzip -c $ali/ali.{1..$nj}.gz|" ark,t:- \
 	| utils/int2sym.pl -f 2- $lang/phones.txt > $ali/phones.txt
     # Extract state alignment
-    ali-to-hmmstate $ali/final.mdl ark:"gunzip -c $ali/ali.*.gz|" ark,t:$ali/states.tra
+    ali-to-hmmstate $ali/final.mdl ark:"gunzip -c $ali/ali.{1..$nj}.gz|" ark,t:$ali/states.tra
     # Extract word alignment
-    linear-to-nbest ark:"gunzip -c $ali/ali.*.gz|" \
+    linear-to-nbest ark:"gunzip -c $ali/ali.{1..$nj}.gz|" \
 	ark:"utils/sym2int.pl --map-oov 1669 -f 2- $lang/words.txt < data/$step/text |" '' '' ark:- \
 	| lattice-align-words $lang/phones/word_boundary.int $ali/final.mdl ark:- ark:- \
 	| nbest-to-ctm --frame-shift=$FRAMESHIFT --precision=3 ark:- - \
 	| utils/int2sym.pl -f 5 $lang/words.txt > $ali/wrdalign.dat
     
     # Regenerate text output from alignment
-    python $KALDI_ROOT/idlak-voice-build/utils/idlak_make_lang.py --mode 1 "2:0.03,3:0.2" "4" $ali/phones.txt $ali/wrdalign.dat data/$step/text_align.xml
+    python $KALDI_ROOT/idlak-voice-build/utils/idlak_make_lang.py --mode 1 "2:0.03,3:0.2" "4" $ali/phones.txt $ali/wrdalign.dat data/$step/text_align.xml $ali/states.tra
 
     # Generate corresponding quinphone full labels
     idlaktxp --pretty --tpdb=$tpdb data/$step/text_align.xml data/$step/text_anorm.xml || exit 1;
@@ -250,19 +262,55 @@ for step in full; do
     # Merge alignment with output from idlak cex front-end => gives you a nice vector
     # NB: for triphone alignment:
     # make-fullctx-ali-dnn  --phone-context=3 --mid-context=1 --max-sil-phone=15 $ali/final.mdl ark:"gunzip -c $ali/ali.*.gz|" ark,t:data/$step/cex.ark ark,t:data/$step/ali
-    make-fullctx-ali-dnn --max-sil-phone=15 $ali/final.mdl ark:"gunzip -c $ali/ali.*.gz|" ark,t:data/$step/cex.ark ark,t:data/$step/ali
+    make-fullctx-ali-dnn --max-sil-phone=15 $ali/final.mdl ark:"gunzip -c $ali/ali.{1..$nj}.gz|" ark,t:data/$step/cex.ark ark,t:data/$step/ali
 
 
     # UGLY convert alignment to features
+    mkdir -p lbldata/$step
     cat data/$step/ali \
 	| awk '{print $1, "["; $1=""; na = split($0, a, ";"); for (i = 1; i < na; i++) print a[i]; print "]"}' \
-	| copy-feats ark:- ark,scp:$featdir/in_feats_$step.ark,$featdir/in_feats_$step.scp
+	| copy-feats ark:- ark,scp:$featdir/in_feats_$step.ark,lbldata/$step/feats.scp
 done
+
+# Split labels in train / dev
+for step in train dev; do
+    dir=lbldata/$step
+    mkdir -p $dir
+    #cp data/$step/{utt2spk,spk2utt} $dir
+    utils/filter_scp.pl data/$step/utt2spk lbldata/full/feats.scp > $dir/feats.scp
+    cat data/$step/utt2spk | awk -v lst=$dir/feats.scp 'BEGIN{ while (getline < lst) n[$1] = 1}{if (n[$1]) print}' > $dir/utt2spk
+    utils/utt2spk_to_spk2utt.pl < $dir/utt2spk > $dir/spk2utt
+    #steps/compute_cmvn_stats.sh $dir $dir $dir
+done
+
+# Optional: remove silences
+for step in train dev; do
+    local/remove_silence_frames.sh data/$step lbldata/$step
+done
+# Cancel silence removal
+#for step in train dev; do
+#    for d in data lbldata; do
+#        cp $d/$step/spk2utt-sil $d/$step/spk2utt
+#        cp $d/$step/utt2spk-sil $d/$step/utt2spk
+#        cp $d/$step/feats-sil.scp $d/$step/feats.scp 
+#    done
+#done
+
+for step in train dev; do
+    dir=lbldata/$step
+    steps/compute_cmvn_stats.sh $dir $dir $dir
+done
+
+for f in feats.scp utt2spk; do
+    cat lbldata/{train,dev}/$f | sort > lbldata/full/$f
+done
+utils/utt2spk_to_spk2utt.pl < lbldata/full/utt2spk > lbldata/full/spk2utt
+
 
 # HACKY
 # Generate features for duration modelling
 # we remove relative position within phone and state
-copy-feats ark:$featdir/in_feats_full.ark ark,t:- \
+copy-feats scp:lbldata/full/feats.scp ark,t:- \
     | awk -v nstate=5 'BEGIN{oldkey = 0; oldstate = -1; for (s = 0; s < nstate; s++) asd[s] = 0}
 function print_phone(vkey, vasd, vpd) {
       for (s = 0; s < nstate; s++) {
@@ -304,18 +352,7 @@ select-feats 0-$(( $nfeats - 3 )) "$duration_feats" ark,scp:$featdir/in_durfeats
 # Output: duration of phone and state are assumed to be the 2 last features
 select-feats $(( $nfeats - 2 ))-$(( $nfeats - 1 )) "$duration_feats" ark,scp:$featdir/out_durfeats_full.ark,$featdir/out_durfeats_full.scp
 
-# Split in train / dev
-for step in train dev; do
-    dir=lbldata/$step
-    mkdir -p $dir
-    #cp data/$step/{utt2spk,spk2utt} $dir
-    utils/filter_scp.pl data/$step/utt2spk $featdir/in_feats_full.scp > $dir/feats.scp
-    cat data/$step/utt2spk | awk -v lst=$dir/feats.scp 'BEGIN{ while (getline < lst) n[$1] = 1}{if (n[$1]) print}' > $dir/utt2spk
-    utils/utt2spk_to_spk2utt.pl < $dir/utt2spk > $dir/spk2utt
-    steps/compute_cmvn_stats.sh $dir $dir $dir
-done
-
-# Same for duration
+# Split labels for duration
 for step in train dev; do
     dir=lbldurdata/$step
     mkdir -p $dir
@@ -452,7 +489,7 @@ utils/make_forward_fmllr.sh $expdurdir $lbldurdir/eval $expdurdir/tst_forward/ "
    smpd = 0;
    for (i = 1; i <= nstate; i++) smpd += sd[i % nstate];
    rmpd = int((smpd + mpd) / 2 + 0.5);
-   # Normal phones
+   # Normal phones => state 5 has a duration of 0
    if (int(sd[0] + 0.5) == 0) {
       for (i = 1; i <= 3; i++) {
          sd[i % nstate] = int(sd[i % nstate] / smpd * rmpd + 0.5);
