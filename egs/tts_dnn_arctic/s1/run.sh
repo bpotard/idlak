@@ -50,7 +50,7 @@ for spk in $spks; do
     if [ ! -e $audio_dir ]; then
 	mkdir -p rawaudio
 	cd rawaudio
-	wget $url
+	wget -c -N $url
 	tar xjf $arch
 	cd ..
     fi
