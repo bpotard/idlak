@@ -185,7 +185,7 @@ void AperiodicEnergy::Compute(const VectorBase<BaseFloat> &wave,
               low_freq = mel_banks_->InverseMelScale(mel_banks_->MelScale(frqs(i)) - 0.5 * freq_delta);
               high_freq = mel_banks_->InverseMelScale(mel_banks_->MelScale(frqs(i)) + 0.5 * freq_delta);
           }
-          KALDI_LOG << "Band " << i << ": [ " << low_freq << " ; " << frqs(i) << " ; " << high_freq << " ]";
+          KALDI_VLOG(2) << "Band " << i << ": [ " << low_freq << " ; " << frqs(i) << " ; " << high_freq << " ]";
       }
   }
 
@@ -202,7 +202,7 @@ void AperiodicEnergy::Compute(const VectorBase<BaseFloat> &wave,
     ComputePowerSpectrum(&tmp_spectrum);
     SubVector<BaseFloat> power_spectrum(tmp_spectrum, 0,
                                         padded_window_size_/2 + 1);
-    KALDI_LOG << "Computing frame " << r << " with F0 " << f0(r); 
+    KALDI_VLOG(3) << "Computing frame " << r << " with F0 " << f0(r); 
 
     /* BP: this code allows us to speed things up a bit for unvoiced regions
        but it may introduce some jumps for no good reasons, so commented out for now! */
