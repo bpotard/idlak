@@ -291,8 +291,11 @@ void RealCepsToMagnitudeSpec(VectorBase<Real> *real_cepstrum, bool apply_exp) {
     Real real = (*real_cepstrum)(i*2),
       im = (*real_cepstrum)(i*2 + 1);
     (*real_cepstrum)(i) = real;
-    KALDI_ASSERT(std::abs(im) <= 1e-4 &&
-                 "FFT of real cepstrum not expected to have imaginary value.");
+    if (std::abs(im) > 1e-4) {
+      (*real_cepstrum)(i) = 0.0;
+      KALDI_WARN <<
+        "FFT of real cepstrum not expected to have imaginary value.";
+    }
   }
   (*real_cepstrum)(half_dim) = last_spectrum;
   //real_cepstrum->Scale(dim);
