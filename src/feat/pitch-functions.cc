@@ -765,13 +765,22 @@ int32 OnlinePitchFeatureImpl::NumFramesAvailable(
   // of frames only if the input is not finished.
   if (!input_finished_)
     frame_length += nccf_last_lag_;
-  if (num_downsampled_samples < frame_length) return 0;
-  else
-    if (input_finished_ && !snip_edges) {
-      return (int32)(num_downsampled_samples * 1.0f / frame_shift + 0.5f);
+  if (num_downsampled_samples < frame_length) {
+    return 0;
+  } else {
+    if (!snip_edges) {
+      if (input_finished_) {
+        return static_cast<int32>(num_downsampled_samples * 1.0f /
+                                  frame_shift + 0.5f);
+      } else {
+        return static_cast<int32>((num_downsampled_samples - frame_length / 2) *
+                                   1.0f / frame_shift + 0.5f);
+      }
+    } else {
+      return static_cast<int32>((num_downsampled_samples - frame_length) /
+                                 frame_shift + 1);
     }
-    else if (!snip_edges) return (int32)((num_downsampled_samples - frame_length/2) * 1.0f / frame_shift + 0.5f);
-    else return ((num_downsampled_samples - frame_length) / frame_shift) + 1;
+  }
 }
 
 void OnlinePitchFeatureImpl::UpdateRemainder(
@@ -827,20 +836,35 @@ void OnlinePitchFeatureImpl::ExtractFrame(
   int32 offset = static_cast<int32>(sample_index -
                                     downsampled_samples_processed_);
 
- 
+  // Treat edge cases first
+  if (sample_index < 0) {
+    // Part of the frame is before the beginning of the signal. This
+    // should only happen if opts_.snip_edges == false, when we are
+    // processing the first few frames of signal. In this case
+    // we pad with zeros.
+    KALDI_ASSERT(opts_.snip_edges == false);
+    int32 sub_frame_length = sample_index + full_frame_length;
+    int32 sub_frame_index = full_frame_length - sub_frame_length;
+    KALDI_ASSERT(sub_frame_length > 0 && sub_frame_index > 0);
+    window->SetZero();
+    SubVector<BaseFloat> sub_window(*window, sub_frame_index, sub_frame_length);
+    ExtractFrame(downsampled_wave_part, 0, &sub_window);
+    return;
+  }
+
   if (offset + full_frame_length > downsampled_wave_part.Dim()) {
     // Requested frame is past end of the signal.  This should only happen if
     // input_finished_ == true, when we're flushing out the last couple of
     // frames of signal.  In this case we pad with zeros.
     KALDI_ASSERT(input_finished_);
-    int32 new_full_frame_length = downsampled_wave_part.Dim() - offset;
-    KALDI_ASSERT(new_full_frame_length > 0);
+    int32 sub_frame_length = downsampled_wave_part.Dim() - offset;
+    KALDI_ASSERT(sub_frame_length > 0);
     window->SetZero();
-    SubVector<BaseFloat> sub_window(*window, 0, new_full_frame_length);
+    SubVector<BaseFloat> sub_window(*window, 0, sub_frame_length);
     ExtractFrame(downsampled_wave_part, sample_index, &sub_window);
     return;
   }
-  
+
   // "offset" is the offset of the start of the frame, into this
   // signal.
   if (offset >= 0) {
@@ -849,19 +873,14 @@ void OnlinePitchFeatureImpl::ExtractFrame(
   } else {
     // frame is partly in the remainder and partly in the new part.
     int32 remainder_offset = downsampled_signal_remainder_.Dim() + offset;
-    /*KALDI_ASSERT(remainder_offset >= 0);  // or we didn't keep enough remainder.*/
+    KALDI_ASSERT(remainder_offset >= 0);  // or we didn't keep enough remainder.
     KALDI_ASSERT(offset + full_frame_length > 0);  // or we should have
                                                    // processed this frame last
                                                    // time.
 
     int32 old_length = -offset, new_length = offset + full_frame_length;
-    if (remainder_offset >= 0) {
-	window->Range(0, old_length).CopyFromVec(
-	    downsampled_signal_remainder_.Range(remainder_offset, old_length));
-    }
-    else {
-	window->Range(0, old_length).SetZero();
-    }
+    window->Range(0, old_length).CopyFromVec(
+        downsampled_signal_remainder_.Range(remainder_offset, old_length));
     window->Range(old_length, new_length).CopyFromVec(
         downsampled_wave_part.Range(0, new_length));
   }

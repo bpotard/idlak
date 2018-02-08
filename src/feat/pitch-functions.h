@@ -201,11 +201,11 @@ struct PitchExtractionOptions {
   // NB: 0.001 is impossible to represent exactly on a float or double, so for
   // this to work without rounding, you would need to divide by 1000 instead.
   int32 NccfWindowSize() const {
-      return static_cast<int32>(round(resample_freq * 0.001f * frame_length_ms));
+      return static_cast<int32>(resample_freq * frame_length_ms / 1000.0);
   }
   /// Returns the window-shift in samples, after resampling.
   int32 NccfWindowShift() const {
-      return static_cast<int32>(round(resample_freq * 0.001f * frame_shift_ms));
+      return static_cast<int32>(resample_freq * frame_shift_ms / 1000.0);
   }
 };
 
