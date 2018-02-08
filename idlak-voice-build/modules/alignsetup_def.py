@@ -50,7 +50,11 @@ class saxhandler(xml.sax.ContentHandler):
                 self.id = newid
                 self.ids.append(self.id)
         if name == "tk":
-            word = attrs['norm'].upper()
+            try:
+                word = attrs['norm'].upper()
+            except:
+                print "Failed parsing: %s, attrs:" % name, attrs.getNames(), attrs.getValue('wordid')
+                raise
             self.data[-1].append(word)
             if not self.lex.has_key(word):
                 self.lex[word] = {}
