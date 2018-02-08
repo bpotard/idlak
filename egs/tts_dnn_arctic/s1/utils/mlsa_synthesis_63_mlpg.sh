@@ -52,6 +52,7 @@ vbap=$tmpdir/$base.bndap.var
 mpdf=$tmpdir/$base.mcep.pdf
 fpdf=$tmpdir/$base.f0.pdf
 bpdf=$tmpdir/$base.bndap.pdf
+resid=$tmpdir/$base.resid
 #feature files
 mcep=$tmpdir/$base.mcep
 f0=$tmpdir/$base.f0
@@ -128,6 +129,8 @@ if [ "$var_file" != "" ]; then
 
     #cat $cmp | cut -d " " -f $(($f0_offset + 1))-$(($f0_offset + 1)) > $uv
     cat ${f0}_raw | x2x +f +a$f0_order | awk -v thresh=$voice_thresh '{if ($1 > thresh) print $2; else print 0.0}' > $f0
+    paste $f0 $bap | awk -v FS='\t' -v n=$bndap_order 'BEGIN{zero="0"; for (i = 1; i < n; i++) zero = zero " 0"}{if ($1 > 0.0) print $2; else print zero}' > $bap.2
+    mv $bap.2 $bap
     
     # Do not do mlpg on MCEP
     #cat $cmp | cut -d " " -f $mcep_offset-$(($mcep_offset + $mcep_order)) > $mcep
@@ -135,6 +138,8 @@ else
     cat $cmp | cut -d " " -f $mcep_offset-$(($mcep_offset + $mcep_order)) > $mcep
     cat $cmp | cut -d " " -f $f0_offset-$(($f0_offset + $f0_order - 1)) | awk -v thresh=$voice_thresh '{if ($1 > thresh) print $2; else print 0.0}' > $f0
     cat $cmp | cut -d " " -f $bndap_offset-$(($bndap_offset + $bndap_order - 1)) | awk '{for (i = 1; i <= NF; i++) if ($i >= 0.0) printf "0.0 " ; else printf "%f ", 20 * ($i) / log(10); printf "\n"}' > $bap
+    paste $f0 $bap | awk -v FS='\t' -v n=$bndap_order 'BEGIN{zero="0"; for (i = 1; i < n; i++) zero = zero " 0"}{if ($1 > 0.0) print $2; else print zero}' > $bap.2
+    mv $bap.2 $bap
 fi
 
 # if we want to keep the original f0/apf:
@@ -151,26 +156,53 @@ if [ "$synth" = "cere" ]; then
     else
         mlopts="-p"
     fi
-    cmd="python $HOME/cereproc/trunk/apps/dsplab/mlsa.py $mlopts -C -a $alpha -m $order -s $srate -f $fftlen -b $bndap_order -i $tmpdir -o $tmpdir $base"
+    cmd="python $HOME/cereproc/trunk/apps/dsplab/mlsa.py $mlopts -C -a $alpha -m $order -s $srate -f $fftlen -b $bndap_order -i $tmpdir -o $tmpdir -e $base"
     echo $cmd
     $cmd
     cp $tmpdir/$base.wav $out_wav
 elif [ "$synth" = "excitation" ]; then
     x2x +af $mcep > $mcep.float
     psize=`echo "$period * $srate / 1000" | bc`
-    # We have to drop the first few F0 frames to match SPTK behaviour
-    #cat $f0 | awk -v srate=$srate '(NR > 2){if ($1 > 0) print srate / $1; else print 0.0}' | x2x +af \
-    #    | excite -p $psize \
-    python utils/excitation.py -G 0.8 -s $srate -f $fftlen -b $bndap_order $f0 $bap > $tmpdir/resid.float
+    python utils/excitation.py -s $srate -f $fftlen -b $bndap_order $f0 $bap > $tmpdir/resid.float
     cat $tmpdir/resid.float | mlsadf -P 5 -m $order -a $alpha -p $psize $mcep.float | x2x -o +fs > $tmpdir/data.mcep.syn
-    sox --norm -t raw -c 1 -r $srate -e signed-integer -b 16 $tmpdir/data.mcep.syn $out_wav
+    sox --norm -t raw -c 1 -r $srate -s -b 16 $tmpdir/data.mcep.syn $out_wav
+elif [ "$synth" = "convolve" ]; then
+    # This is a very slow, but rather accurate vocoder
+    x2x +af $mcep > $mcep.float
+    psize=`echo "$period * $srate / 1000" | bc`
+    isize=`echo "$period * $srate / 5000" | bc`
+    echo "Excitation"
+    python utils/excitation.py -s $srate -f $fftlen -b $bndap_order $f0 $bap $resid.float #$bap
+    # Generate mcep spectogram; note that phase has been lost so output waveform will look very different
+    echo "Spectrum $fftlen"
+    # Rather slow process: we have to generate amplitude and phase separately
+    mgc2sp -l $fftlen -m $order -a $alpha -o 2 $mcep.float > $mcep.sp.norm.float
+    mgc2sp -l $fftlen -m $order -a $alpha -p -o 1 $mcep.float > $mcep.sp.arg.float
+    # Combine norm and angle
+    merge -s 1 -l 1 -L 1 +f $mcep.sp.arg.float < $mcep.sp.norm.float > $mcep.sp
+    echo "Convolution $mcep.sp"
+    python utils/convolve.py -m 4.0 -s -l $fftlen -p $psize -i $isize $resid.float $mcep.sp $out_wav
+    # Legacy vocoder: we were using mlsadf, but the Pade approximation is of a too low order
+    # in SPTK for 48k output.
+    #cat $tmpdir/resid.float | mlsadf -P 7 -m $order -a $alpha -p $psize $mcep.float | x2x -o +fs > $tmpdir/data.mcep.syn
+    #sox --norm -t raw -c 1 -r $srate -e signed-integer -b 16 $tmpdir/data.mcep.syn $out_wav
+elif [ "$synth" = "WORLD" ]; then
+    x2x +ad $bap > $bap.double
+    x2x +af $mcep > $mcep.float
+    x2x +ad $f0 > $f0.double
+    world=/home/pilar/Documents/idlak-merlin/dnn_tts/tools/WORLD/build
+    mgc2sp -l $fftlen -g 0 -m $order -a $alpha -o 2 $mcep.float | sopr -d 55000.0 -P | x2x +fd > $mcep.sp.double
+    echo $world/synth $fftlen $srate $f0.double $mcep.sp.double $ap.double $out_wav
+    $world/synth $fftlen $srate $f0.double $mcep.sp.double $bap.double $out_wav
 else
     x2x +af $mcep > $mcep.float
     psize=`echo "$period * $srate / 1000" | bc`
+    #echo $psize
     # We have to drop the first few F0 frames to match SPTK behaviour
+    mc2b -m $order -a $alpha $mcep.float > $mcep.float.2
     cat $f0 | awk -v srate=$srate '(NR > 2){if ($1 > 0) print srate / $1; else print 0.0}' | x2x +af \
         | excite -p $psize \
-        | mlsadf -P 5 -m $order -a $alpha -p $psize $mcep.float | x2x -o +fs > $tmpdir/data.mcep.syn
+        | mlsadf -P 5 -m $order -a $alpha -p $psize $mcep.float | x2x -o +fs > $tmpdir/data.mcep.syn 2> /dev/null
     sox --norm -t raw -c 1 -r $srate -e signed-integer -b 16 $tmpdir/data.mcep.syn $out_wav
 fi
 
