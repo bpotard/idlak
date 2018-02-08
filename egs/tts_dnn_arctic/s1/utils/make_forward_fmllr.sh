@@ -56,7 +56,7 @@ if [ \( "$fmllr" == "" \) -a \( -e $exp/cmvn_out_glob.ark \) ]; then
     #postproc="$postproc | nnet-forward --no-softmax=true $exp/reverse_cmvn_out_glob.nnet ark:- ark,t:- "
 fi
 awkcmd="'"'($2 == "["){if (out) close(out); out=dir $1 ".cmp";}($2 != "["){if ($NF == "]") $NF=""; print $0 > out}'"'"
-postproc="$postproc | awk -v dir=$cmpdir $awkcmd"
+postproc="$postproc | tee $out/feats.ark | awk -v dir=$cmpdir $awkcmd"
 
 if [ "$nnet" == "" ]; then
     nnet=$exp/final.nnet
