@@ -44,7 +44,7 @@ def fuzzy_position(fuzzy_factor, position, duration):
     real_position = (position + 0.5) / duration
     return int(round(real_position / fuzzy_factor))
 
-def make_fullctx_mlf_dnn(mlffile, fullctx, outputfile, framerate_htk = 50000, phone_fuzz_factor = 0.1, state_fuzz_factor = 0.2):
+def make_fullctx_mlf_dnn(mlffile, fullctx, outputfile, framerate_htk = 50000, phone_fuzz_factor = 0.1, state_fuzz_factor = 0.2, extra_feats=""):
     monos = parse_mlf(mlffile)
     ofp = open(outputfile, "w")
     labs = parse_mlf(mlffile)
@@ -92,7 +92,7 @@ def make_fullctx_mlf_dnn(mlffile, fullctx, outputfile, framerate_htk = 50000, ph
         ofp.write("%s [\n" % id)
         for ctx, spos, ppos in zip(frame_ctxt, state_pos, phone_pos):
             #print ctx, spos, ppos
-            ofp.write(' '.join(ctx + list(spos) + list(ppos)) + '\n')
+            ofp.write(extra_feats + ' ' + ' '.join(ctx + list(spos) + list(ppos)) + '\n')
         ofp.write("]\n")
     ofp.close()
 
@@ -102,9 +102,11 @@ def main():
         "Convert time aligned monophone labels into full context labels\n " \
         "based on output from cex tool from idlak."
     parser = OptionParser(usage=usage)
+    parser.add_option("-e", "--extra-feats", dest="extra_feats", default="",
+                       help="Extra feature to add to beginning of each frame")
     opts, args = parser.parse_args()
     if len(args) == 3:
-        make_fullctx_mlf_dnn(args[0], args[1], args[2])
+        make_fullctx_mlf_dnn(args[0], args[1], args[2], extra_feats=opts.extra_feats)
     else: 
         parser.error('Mandatory arguments missing or excessive number of arguments')
 
