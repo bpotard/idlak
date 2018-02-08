@@ -1,9 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import cmath
+import cmath, math, random
 import numpy as np
 import os, sys, copy, timeit, array
+try:
+  import pylab
+except:
+  pass
 
 class RESD:
     
@@ -16,6 +20,7 @@ class RESD:
         self.fshift = float(fshift)
         self.f0min = 70.
         self.uvf0 = .5 / self.fshift
+        self.rnd_val = 0
         self.frame_shift = int(self.fshift * self.srate)
         
         if hasattr(extra_opts, 'no_mix'):
@@ -34,6 +39,44 @@ class RESD:
             self.midbands = None
 
     ########################################################
+    
+    # f0 is fundamental frequency in Hz, while fs is sampling frequency
+    # N2 is glottal opening duration, N1 is "duty" of the cycle 
+    def rosenberg_pulse(self, N1, N2, pulselength, randomize=False):
+        
+        #T = 1/f0 # period
+        #pulselength = math.floor(T*fs)
+        N2 = int(math.floor(pulselength*N2))
+        N1 = int(math.floor(N1*N2))
+        gn = np.zeros(self.len + 1)
+        offset = self.len/2 - N1
+        # Opening phase
+        for n in range(0, N1):
+            gn[n + offset] = 0.5 * (1-math.cos(np.pi*n / N1))
+        # Closing phase
+        for n in range(N1, N2):
+            gn[n + offset] = math.cos(np.pi*(n-N1)/(N2-N1)/2)
+        #print gn
+        if randomize:
+            self.rnd_val += (random.random() - 0.5) * np.pi * 0.01
+        else:
+            self.rnd_val = 0
+        #return gn
+        gn = np.diff(gn)
+        # Normalise in the FFT domain
+        gn = np.fft.fftshift(gn)
+        pulse_fft = np.fft.rfft(gn)
+        for i, c in enumerate(pulse_fft):
+            #n = abs(c)
+            #if n > 0:
+            #    pulse_fft[i] = c / n
+            #else:
+            #    pulse_fft[i] = 1.0 + 0j
+            if i != 0 and i != len(pulse_fft) -1:
+                pulse_fft[i] = cmath.rect(1.0, cmath.polar(c)[1] + self.rnd_val)
+        gn = np.fft.irfft(pulse_fft)
+        gn = np.fft.ifftshift(gn)
+        return gn
     
     #def rms(self, v):
         
@@ -59,10 +102,10 @@ class RESD:
                 mb = copy.copy(self.midbands)
                 if mb[0] != 0: 
                     mb = [0] + mb
-                    noiseweights = np.hstack(([0.], noiseweights))
+                    noiseweights = np.hstack((noiseweights[0], noiseweights))
                 if mb[-1] != self.len/2: 
                     mb = mb + [self.len/2]
-                    noiseweights = np.hstack((noiseweights, [1.]))
+                    noiseweights = np.hstack((noiseweights, noiseweights[-1]))
 
                 noiseWeights = np.interp(range(self.len/2), mb, noiseweights)
                 pulseWeights = np.sqrt(1 - noiseWeights**2).clip(0.,1.)
@@ -77,8 +120,8 @@ class RESD:
                     noise_weight = np.power(10., band_val / 20.)
                     noise_weight = min(noise_weight, 1.)
 
-                    if pulse[self.hlen] == 0.0:
-                        noise_weight = 1.0
+                    #if pulse[self.hlen] == 0.0:
+                    #    noise_weight = 1.0
 
                     pulse_weight = np.sqrt(max(0.0, 1.0 - noise_weight**2))
 
@@ -101,7 +144,7 @@ class RESD:
         excitation = pulse + noise
 
         # Normalise energy
-        excitation /= np.sqrt(pitch_period / sum(excitation ** 2)) 
+        #excitation /= np.sqrt(pitch_period / sum(excitation ** 2)) 
         
         
         return excitation, pulse, noise 
@@ -180,7 +223,17 @@ class RESD:
 
             # Create Excitation
             pulse = np.zeros(self.len)
+            #pulse = self.rosenberg_pulse(0.7, 0.7, pitch_period_int, False)#True)
+            #if len(pulse) < self.len:
+            #    pulse_pre = np.zeros((self.len - len(pulse)) / 2)
+            #    pulse_post = np.zeros(self.len - len(pulse) - len(pulse_pre))
+            #    pulse = np.concatenate((pulse_pre, pulse, pulse_post))
             pulse[self.hlen] = pulse_magnitude
+            #pulse *= np.sqrt(pitch_period / sum(pulse ** 2))
+
+            #pylab.figure(); pylab.plot(pulse); pylab.show()
+            #sys.stderr.write("len: %d, hlen: %d, vals: %f,%f\n" % (len(pulse), self.hlen, pulse[0], pulse[self.hlen]))
+            #
 
             # Noise only needs to covers the middle of window
             noise = np.zeros(self.len)
@@ -190,6 +243,7 @@ class RESD:
             # To ensure the energy of noise is the same as pulse
             noise_norm_fact = np.sqrt(pitch_period / flen)
             noise[start_point: start_point + flen] = np.random.normal(0., 1.0 * noise_norm_fact, flen)
+            #sys.stderr.write("nrgs: %f <> %f\n" % ( sum(pulse ** 2), sum(noise ** 2)))
 
             # Pitch synch hanning window
             hanning_window = self.pitch_sync_hann(pitch_period_prv, pitch_period_int)
@@ -197,8 +251,10 @@ class RESD:
 
             # Mix to get excitation (and get the new pulse and noise)
             excitation, pulse, noise = self.mixed_excitation(pulse, noise, bndap, pitch_period, voiced)
-  
+            #if (voiced):
+            #    pylab.figure(); pylab.plot(excitation); pylab.show()
             self.overlap_and_add(raw, excitation, hanning_window, time_idx)
+            #pylab.figure(); pylab.plot(raw[:self.len]); pylab.show()
 
             # Update times, frame index, etc
             pitch_period_prv = pitch_period_int
@@ -215,6 +271,7 @@ class RESD:
             self.iteration += 1
 
         excitation = np.divide(raw, np.where(self.hanning > 0, self.hanning, 1))
+        #return excitation
         t_start = self.len/2 - self.frame_shift 
         return excitation[t_start:]
 
@@ -229,11 +286,16 @@ class RESD:
         if hlen is None:
             hlen = self.hlen
 
-        left = np.hanning(left_period*2)[:left_period]
-        right = np.hanning(right_period*2)[-right_period:]
-        leftzeros = np.zeros(hlen - left.size)
-        rightzeros = np.zeros((self.len - hlen) - right.size)
-        hann = np.hstack([leftzeros, left, right, rightzeros])
+        left = np.hanning(left_period*4)[:left_period*2]
+        right = np.hanning(right_period*4)[-right_period*2:]
+        
+        leftzeros = []
+        rightzeros = []
+        if left.size < hlen:
+            leftzeros = np.zeros(hlen - left.size)
+        if right.size < (self.len - hlen):
+            rightzeros = np.zeros((self.len - hlen) - right.size)
+        hann = np.hstack([leftzeros, left[-hlen:], right[:self.len - hlen], rightzeros])
 
         ## Plot window
         #pylab.figure(); pylab.plot(hann); pylab.show(); exit()
@@ -246,7 +308,11 @@ class RESD:
         excitation = excitation * hanning
 
         hlen = self.hlen
-        slc_exc = slice(0, min(excitation.size, raw.size - start_time))
+        win_center = start_time #int((i + 0.5) * period)
+        win_lb = win_center - hlen
+        win_ub = win_lb + hlen * 2
+        slc_exc = slice(max(0, -win_lb), min(excitation.size, hlen + raw.size - win_ub))
+        #slc_exc = slice(0, min(excitation.size, raw.size - start_time))
         len_exc_slc = slc_exc.stop - slc_exc.start
         slc_raw = slice(start_time, min(start_time + len_exc_slc, raw.size))
         raw[slc_raw] = raw[slc_raw] + excitation[slc_exc]
@@ -360,7 +426,7 @@ def main():
     if bndapfile:
         bndaps = load_file(bndapfile, int(opts.bndaporder))
     else:
-        bndaps = [[0.] * int(opts.bndaporder)] * len(f0s)
+        bndaps = np.array([[0.] * int(opts.bndaporder)] * len(f0s))
 
     #f lf0:
     #   f0s = np.exp(f0s)
