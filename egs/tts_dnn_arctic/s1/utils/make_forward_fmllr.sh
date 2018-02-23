@@ -1,3 +1,10 @@
+#!/bin/sh
+single_opts=
+if [ $1 == "--single" ]; then
+    single_opts=1
+    shift
+fi
+
 exp=$1
 tst=$2
 out=$3
@@ -55,8 +62,14 @@ if [ \( "$fmllr" == "" \) -a \( -e $exp/cmvn_out_glob.ark \) ]; then
     #cmvn-to-nnet --binary=false $exp/cmvn_out_glob.ark - | convert_transform.sh > $exp/reverse_cmvn_out_glob.nnet
     #postproc="$postproc | nnet-forward --no-softmax=true $exp/reverse_cmvn_out_glob.nnet ark:- ark,t:- "
 fi
-awkcmd="'"'($2 == "["){if (out) close(out); out=dir $1 ".cmp";}($2 != "["){if ($NF == "]") $NF=""; print $0 > out}'"'"
-postproc="$postproc | tee $out/feats.ark | awk -v dir=$cmpdir $awkcmd"
+if [ "$single_opts" == "1" ]; then
+    postproc="$postproc | copy-feats ark:- ark,scp:$out/feats.ark,$out/feats.scp"
+else
+    awkcmd="'"'($2 == "["){if (out) close(out); out=dir $1 ".cmp";}($2 != "["){if ($NF == "]") $NF=""; print $0 > out}'"'"
+    postproc="$postproc | tee $out/feats.ark | awk -v dir=$cmpdir $awkcmd"
+fi
+#awkcmd="'"'($2 == "["){if (out) close(out); out=dir $1 ".cmp";}($2 != "["){if ($NF == "]") $NF=""; print $0 > out}'"'"
+#postproc="$postproc | tee $out/feats.ark | awk -v dir=$cmpdir $awkcmd"
 
 if [ "$nnet" == "" ]; then
     nnet=$exp/final.nnet
