@@ -22,8 +22,8 @@ if [ $# != 2 ]; then
   exit 1
 fi
 
-#synth=excitation
-synth=cere
+synth=excitation
+#synth=cere
 voice_dir=$1
 outdir=$2
 
