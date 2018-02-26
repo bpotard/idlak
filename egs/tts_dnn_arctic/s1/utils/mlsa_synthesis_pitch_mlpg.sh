@@ -175,7 +175,7 @@ if [ "$synth" = "cere" ]; then
     $cmd
     cp $tmpdir/$base.wav $out_wav
 elif [ "$synth" = "excitation" ]; then
-    x2x +af $mcep > $mcep.float
+    x2x +af $mcep | mlsacheck -l $fftlen -c 2 -r 1 -P 5 -m $order -a $alpha > $mcep.float
     psize=`echo "$period * $srate / 1000" | bc`
     # We have to drop the first few F0 frames to match SPTK behaviour
     #cat $f0 | awk -v srate=$srate '(NR > 2){if ($1 > 0) print srate / $1; else print 0.0}' | x2x +af \
@@ -184,7 +184,7 @@ elif [ "$synth" = "excitation" ]; then
     cat $tmpdir/resid.float | mlsadf -P 5 -m $order -a $alpha -p $psize $mcep.float | x2x -o +fs > $tmpdir/data.mcep.syn
     sox --norm -t raw -c 1 -r $srate -s -b 16 $tmpdir/data.mcep.syn $out_wav
 else
-    x2x +af $mcep > $mcep.float
+    x2x +af $mcep | mlsacheck -l $fftlen -c 2 -r 1 -P 5 -m $order -a $alpha > $mcep.float
     psize=`echo "$period * $srate / 1000" | bc`
     # We have to drop the first few F0 frames to match SPTK behaviour
     cat $f0 | awk -v srate=$srate '(NR > 2){if ($1 > 0) print srate / $1; else print 0.0}' | x2x +af \
